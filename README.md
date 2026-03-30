@@ -4,9 +4,19 @@ Queue Up is a two-pronged system to improve LeetCode learning retention and enfo
 
 ## High-Level Purpose
 
-- Mobile app delivers daily LeetCode problems using spaced repetition by concept cluster (DFS, DP, Graphs, etc.).
-- Desktop app detects distracting app usage and forces the daily recommended LeetCode problem to open.
-- Backend coordinates scheduling, event delivery, auth, and analytics.
+- Mobile app delivers daily LeetCode problems using spaced repetition by concept cluster (DFS, DP, Graphs, Queue, etc.).
+- Desktop app detects distracting game usage and forces a LeetCode tab to open in the default browser.
+- Backend coordinates onboarding, scheduling, event delivery, auth, and analytics.
+
+## Product Constraints (Current MVP)
+
+- LeetCode metadata source: [noworneverev/leetcode-api](https://github.com/noworneverev/leetcode-api?tab=readme-ov-file) (queried by backend adapter).
+- First login flow: user selects a starting concept cluster (example: Graphs, DP, Queue).
+- Initial recommendation policy: prefer Easy problems first.
+- Daily cap: assign up to `3` problems per day.
+- Seed problem set: NeetCode 150 curated list as baseline; expand later to a broader internal set.
+- Mobile app behavior: push notifications for daily queue + pending completions.
+- Desktop behavior: when game usage is detected, open/switch to a new LeetCode tab in the system default browser, pointing to the current daily problem.
 
 ## Core Architecture
 
@@ -20,7 +30,7 @@ flowchart LR
     B <--> R[(Redis Pub/Sub)]
     B <--> P[(Postgres)]
     B <--> C[Clerk Auth]
-    B <--> L[LeetCode Metadata Adapter]
+    B <--> L[LeetCode API Adapter<br/>noworneverev/leetcode-api]
 
     R --> B
     B --> M
@@ -89,7 +99,7 @@ sequenceDiagram
     Desktop->>Backend: enforcement_triggered
     Backend->>PG: Persist enforcement log
     Backend->>Redis: Publish enforcement event
-    Desktop->>Desktop: Open recommended LeetCode URL in browser
+    Desktop->>Desktop: Open daily LeetCode problem in browser
     Redis-->>Mobile: Real-time nudge notification
 ```
 
@@ -106,7 +116,7 @@ flowchart TD
 
     B[Behavioral Enforcement Loop]
     B1[Desktop detects distracting app]
-    B2[Open daily recommended problem]
+    B2[Open current daily problem]
     B3[Log event in Postgres]
     B4[Notify mobile in real time]
     B --> B1 --> B2 --> B3 --> B4 --> B1
@@ -124,4 +134,35 @@ flowchart TD
     class A,A1,A2,A3,A4 spaced;
     class B,B1,B2,B3,B4 enforcement;
     class C,C1,C2,C3 analytics;
+```
+
+## MVP User Flow
+
+```mermaid
+%%{init: {
+  "theme": "base",
+  "themeCSS": ".nodeLabel,.edgeLabel,.label,text,tspan{paint-order:stroke;stroke:#111;stroke-width:0.5px;stroke-linejoin:round;text-shadow:0.5px 0.5px 1px rgba(0,0,0,0.18);}"
+}}%%
+flowchart TD
+    A["User logs in"] --> B["Pick starting concept<br/>(Graphs / DP / Queue / ...)"]
+    B --> C["Backend builds initial plan<br/>Easy-first from NeetCode 150 seed"]
+    C --> D["Assign daily queue<br/>max 3 problems"]
+    D --> E["Mobile receives push notification"]
+    E --> F["User solves problem(s)"]
+    F --> G["Backend updates mastery + next review"]
+
+    H["Desktop detects game app in foreground"] --> I["Fetch current daily problem URL"]
+    I --> J["Open/switch to LeetCode tab in default browser"]
+    J --> K["Log enforcement event + notify mobile"]
+    K --> F
+
+    classDef start fill:#E3F2FD,stroke:#1565C0,stroke-width:1px,color:#0D47A1;
+    classDef learning fill:#E8F5E9,stroke:#2E7D32,stroke-width:1px,color:#1B5E20;
+    classDef delivery fill:#EDE7F6,stroke:#5E35B1,stroke-width:1px,color:#311B92;
+    classDef enforcement fill:#FFF3E0,stroke:#EF6C00,stroke-width:1px,color:#E65100;
+
+    class A start;
+    class B,C,D,F,G learning;
+    class E,K delivery;
+    class H,I,J enforcement;
 ```
