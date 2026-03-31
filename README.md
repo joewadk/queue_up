@@ -23,9 +23,9 @@ Queue Up is a two-pronged system to improve LeetCode learning retention and enfo
 ```mermaid
 flowchart LR
     U[User] --> M[Mobile App<br/>Swift]
-    U --> D[Desktop Agent<br/>Go or Java]
+    U --> D[Desktop Agent<br/>Go]
 
-    M <--> |WebSocket| B[Backend API + Scheduler<br/>Go or Java]
+    M <--> |WebSocket| B[Backend API + Scheduler<br/>Go]
     D <--> |REST/gRPC| B
     B <--> R[(Redis Pub/Sub)]
     B <--> P[(Postgres)]
@@ -52,55 +52,52 @@ flowchart LR
 ## End-to-End Data Flow
 
 ```mermaid
-%%{init: {
-  "theme": "base",
-  "themeCSS": ".messageText,.noteText,.labelBox,.labelText,text,tspan{paint-order:stroke;stroke:#111;stroke-width:0.5px;stroke-linejoin:round;text-shadow:0.6px 0.6px 1px rgba(0,0,0,0.22);}"
-}}%%
+%%{init: {"theme": "neutral"}}%%
 sequenceDiagram
-    box rgb(227, 242, 253) Clients
-    participant Mobile as Mobile App (Swift)
+    autonumber
+    participant Mobile as Mobile App
     participant Desktop as Desktop Agent
-    end
-
-    box rgb(237, 231, 246) Core Backend
-    participant Backend as Backend (Go/Java)
-    end
-
-    box rgb(255, 243, 224) Realtime + Storage
-    participant Redis as Redis Pub/Sub
+    participant Backend as Go Backend
+    participant Redis as Redis
     participant PG as Postgres
-    end
-
-    box rgb(232, 245, 233) External Providers
     participant LC as LeetCode API
     participant Clerk as Clerk
+
+    rect rgb(239, 246, 255)
+        Note over Mobile,Backend: Auth + Profile Bootstrap
+        Mobile->>Backend: Send sign-in token
+        Backend->>Clerk: Validate session
+        Clerk-->>Backend: User identity
+        Backend->>PG: Upsert user profile
     end
 
-    Note over Mobile,Backend: Auth bootstrap
-    Mobile->>Backend: Sign in token
-    Backend->>Clerk: Validate user/session
-    Clerk-->>Backend: User identity
-    Backend->>PG: Upsert user profile
+    rect rgb(240, 253, 244)
+        Note over Backend,LC: Daily Recommendation
+        Backend->>LC: Fetch problem metadata
+        LC-->>Backend: Problems + tags + difficulty
+        Backend->>PG: Persist catalog and mappings
+        Backend->>PG: Compute today's assignments
+        Backend->>Redis: Publish problem.assigned
+        Redis-->>Mobile: Push queue update
+    end
 
-    Note over Backend,LC: Problem metadata sync
-    Backend->>LC: Poll problems + tags + difficulty
-    LC-->>Backend: Problem metadata
-    Backend->>PG: Store catalog + concept mapping
+    rect rgb(254, 242, 242)
+        Note over Desktop,Mobile: Distraction Enforcement
+        Desktop->>Desktop: Detect distracting process
+        Desktop->>Backend: Send user.distracted
+        Backend->>PG: Persist enforcement log
+        Backend->>Redis: Publish user.distracted
+        Desktop->>Desktop: Open today's LeetCode problem
+        Redis-->>Mobile: Real-time nudge
+    end
 
-    Note over Backend,Mobile: Spaced repetition assignment loop
-    Backend->>PG: Compute daily spaced-repetition recommendations
-    Backend->>Redis: Publish daily_problem_assigned
-    Redis-->>Mobile: Notification event
-    Mobile->>Backend: Problem completed
-    Backend->>PG: Update mastery + next review date
-
-    Note over Desktop,Mobile: Behavioral enforcement loop
-    Desktop->>Desktop: Detect distracting app usage
-    Desktop->>Backend: enforcement_triggered
-    Backend->>PG: Persist enforcement log
-    Backend->>Redis: Publish enforcement event
-    Desktop->>Desktop: Open daily LeetCode problem in browser
-    Redis-->>Mobile: Real-time nudge notification
+    rect rgb(245, 243, 255)
+        Note over Mobile,Backend: Completion Loop
+        Mobile->>Backend: Submit completion
+        Backend->>PG: Record completion + update mastery
+        Backend->>Redis: Publish problem.completed
+        Redis-->>Mobile: Refresh progress/streaks
+    end
 ```
 
 ## Feedback Loops
@@ -165,4 +162,56 @@ flowchart TD
     class B,C,D,F,G learning;
     class E,K delivery;
     class H,I,J enforcement;
+```
+
+## Docker Setup (Postgres + Backend)
+
+### Prerequisites
+
+- Docker Desktop running
+- Bash shell (Git Bash/WSL/macOS/Linux)
+
+### Start services
+
+```bash
+./docker-up.sh
+```
+
+This builds and runs:
+
+- `queue-up-postgres` on `localhost:5432`
+- `queue-up-go-backend` on `localhost:8080`
+
+### Stop services (and clear DB volume)
+
+```bash
+./docker-down.sh
+```
+
+### Quick health check
+
+```bash
+curl http://localhost:8080/health
+```
+
+### API test flow
+
+1. Generate today's recommendations:
+
+```bash
+curl "http://localhost:8080/v1/recommendation/today?user_id=00000000-0000-0000-0000-000000000001"
+```
+
+2. Mark problem complete from desktop source:
+
+```bash
+curl -X POST "http://localhost:8080/v1/completions" \
+  -H "Content-Type: application/json" \
+  -d "{\"user_id\":\"00000000-0000-0000-0000-000000000001\",\"problem_id\":1,\"source\":\"desktop\",\"verification\":\"manual\"}"
+```
+
+3. Query daily queue with checkbox state:
+
+```bash
+curl "http://localhost:8080/v1/daily-queue?user_id=00000000-0000-0000-0000-000000000001"
 ```

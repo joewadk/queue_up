@@ -10,12 +10,14 @@ import (
 )
 
 type EnforcementEvent struct {
-	TimestampUTC time.Time `json:"timestamp_utc"`
-	Executable   string    `json:"executable"`
-	Action       string    `json:"action"`
-	ProblemURL   string    `json:"problem_url"`
-	DryRun       bool      `json:"dry_run"`
-	Error        string    `json:"error,omitempty"`
+	TimestampUTC          time.Time `json:"timestamp_utc"`
+	Executable            string    `json:"executable"`
+	Action                string    `json:"action"`
+	ProblemURL            string    `json:"problem_url"`
+	RecommendationSource  string    `json:"recommendation_source,omitempty"`
+	RecommendedProblemSlug string   `json:"recommended_problem_slug,omitempty"`
+	DryRun                bool      `json:"dry_run"`
+	Error                 string    `json:"error,omitempty"`
 }
 
 type JSONL struct {

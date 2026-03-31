@@ -1,4 +1,4 @@
-# Queue Up Desktop Agent (Base)
+# Queue Up Desktop Agent
 
 Windows desktop agent that detects configured game executables and opens a LeetCode URL in the default browser.
 
@@ -12,26 +12,54 @@ Windows desktop agent that detects configured game executables and opens a LeetC
 - Enforces a cooldown to avoid repeated tab spam (set lower while testing).
 - Logs enforcement events to JSONL for future Postgres/backend integration.
 - Optional poll heartbeat logs to verify it is continuously scanning.
+- Registers/unregisters itself in Windows Startup Apps via `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.
+- Optional system tray mode with actions:
+  - `Open Today's Problem`
+  - `Mark as Done` (posts completion to backend)
 
 ## Quick Start
 
-1. Copy example config:
-   - `copy config\\config.example.json config\\config.json`
-2. Edit `config\\config.json`:
+1. Run the quickstart script:
+   ```bash
+   ./desktop-quickstart.sh
+   ```
+
+   This script will:
+   - Build the `queue-up-agent` binary.
+   - Ensure the `config.json` file exists (copies from `config.example.json` if missing).
+   - Run the agent with the appropriate configuration.
+
+2. Edit `config/config.json` if needed:
    - Set `leetcode_problem_url` to the current problem URL you want to enforce.
-   - Keep `dry_run: true` for safe test mode first.
-3. Run:
-   - `go run .\\cmd\\queue-up-agent -config config\\config.json`
+   - Adjust other settings as required.
 
 ## Config Fields
 
 - `poll_interval_seconds`: process scan frequency.
 - `cooldown_seconds`: minimum time before re-enforcing for the same exe (`0` = every poll).
+- `backend_base_url`: Queue Up backend base URL (for recommendation fetch).
+- `user_id`: user id passed to `/v1/recommendation/today`.
+- `request_timeout_seconds`: HTTP timeout for backend recommendation fetch.
 - `leetcode_problem_url`: URL opened in default browser on enforcement.
 - `watched_executables`: list of process names to detect.
 - `log_file_path`: JSONL log output path.
 - `dry_run`: when `true`, logs actions without opening browser.
 - `log_polls`: when `true`, writes a heartbeat log each polling cycle.
+- `enable_tray`: when `true`, starts tray UI mode automatically.
+
+Tray `Mark as Done` behavior:
+
+- Requires `backend_base_url` and `user_id`.
+- Selects first incomplete problem from `/v1/daily-queue`.
+- Falls back to `/v1/recommendation/today` if queue lookup fails.
+- Posts completion to `/v1/completions` with:
+  - `source: "desktop"`
+  - `verification: "manual_tray"`
+
+Recommendation behavior:
+
+- If `backend_base_url` + `user_id` are set and backend responds, agent opens recommended problem URL.
+- If backend is unavailable or returns no recommendation, agent falls back to `leetcode_problem_url`.
 
 ## Next Steps
 

@@ -1,0 +1,37 @@
+name: queue_up
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: queue_up
+      POSTGRES_USER: queue_up
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    ports:
+      - "55432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ../../backend/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U queue_up -d queue_up"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  go-backend:
+    build: ../../backend
+    container_name: go-backend
+    restart: unless-stopped
+    environment:
+      HTTP_ADDR: ":8080"
+      DATABASE_URL: "postgres://queue_up:${POSTGRES_PASSWORD}@postgres:5432/queue_up?sslmode=disable"
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
