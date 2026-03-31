@@ -13,4 +13,8 @@
 - added exe registry config
 - added docker and postgres to backend 
 - some bash scripts made for docker run and stop
-- 
+- added aws ec2 infra setup
+- added icon to system tray and exe
+- updated setup and start scripts 
+- added nginx to aws infra for rate limiting
+- added rate limiting to nginx configuration for backend

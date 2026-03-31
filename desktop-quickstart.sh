@@ -20,6 +20,5 @@ fi
 #build go binary for windows.
 go build -o bin/queue-up-agent.exe ./cmd/queue-up-agent
 
-
-# Run with explicit config path.
+#run with explicit config path.
 bin/queue-up-agent.exe -config "$CONFIG_FILE"
