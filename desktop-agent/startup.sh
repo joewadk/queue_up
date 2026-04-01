@@ -7,8 +7,12 @@ AGENT_EXE="${SCRIPT_DIR}/queue-up-agent.exe"
 CONFIG_PATH="${SCRIPT_DIR}/config/config.json"
 
 if [[ ! -f "${AGENT_EXE}" ]]; then
-  echo "Error: agent executable not found at ${AGENT_EXE}" >&2
-  exit 1
+  if [[ -f "${SCRIPT_DIR}/bin/queue-up-agent.exe" ]]; then
+    AGENT_EXE="${SCRIPT_DIR}/bin/queue-up-agent.exe"
+  else
+    echo "Error: agent executable not found at ${AGENT_EXE}" >&2
+    exit 1
+  fi
 fi
 
 if [[ ! -f "${CONFIG_PATH}" ]]; then

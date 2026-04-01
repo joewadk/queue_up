@@ -18,3 +18,10 @@
 - updated setup and start scripts 
 - added nginx to aws infra for rate limiting
 - added rate limiting to nginx configuration for backend
+
+# 04/01/2026
+- massive changes to ui, added desktop gui
+- using the name provided by the user, we can then use lc's graphql api to do a multitude of things
+- allow users to select study path (choose one of the categories from neetcode)
+- allow users to see their own submission history in the desktop app
+- allow users to submit the lc submission links to the app to mark their project as done (currently wip)

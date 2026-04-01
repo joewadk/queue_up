@@ -17,8 +17,15 @@ if [ ! -f "$CONFIG_FILE" ]; then
     cp "$EXAMPLE_CONFIG" "$CONFIG_FILE"
 fi
 
-#build go binary for windows.
-go build -o bin/queue-up-agent.exe ./cmd/queue-up-agent
+# build go binary in desktop-agent root 
+if command -v gcc >/dev/null 2>&1; then
+    echo "gcc detected; building desktop UI-enabled agent..."
+    go build -o queue-up-agent.exe ./cmd/queue-up-agent
+else #otherwise, build no_gl version of agent to avoid UI dependency issues.
+    echo "gcc not found in PATH; building no_gl agent (desktop UI disabled)."
+    echo "Install gcc (MinGW-w64/MSYS2) and re-run to enable dashboard UI."
+    go build -tags="no_gl" -o queue-up-agent.exe ./cmd/queue-up-agent
+fi
 
 #run with explicit config path.
-bin/queue-up-agent.exe -config "$CONFIG_FILE"
+./queue-up-agent.exe -config "$CONFIG_FILE"

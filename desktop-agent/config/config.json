@@ -12,5 +12,6 @@
   "log_file_path": "logs/enforcement.jsonl",
   "dry_run": false,
   "log_polls": true,
-  "enable_tray": true
+  "enable_tray": true,
+  "open_gui_on_start": true
 }

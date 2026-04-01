@@ -16,6 +16,13 @@ Windows desktop agent that detects configured game executables and opens a LeetC
 - Optional system tray mode with actions:
   - `Open Today's Problem`
   - `Mark as Done` (posts completion to backend)
+  - `Open Dashboard` (opens native desktop UI)
+- Native desktop UI (Fyne) for:
+  - First-time login/bootstrap by LeetCode username (with backend verification)
+  - Choosing NeetCode categories
+  - Refreshing personal problem-of-the-day queue
+  - Viewing previously completed problems
+  - Marking selected queue problem complete (optional submission URL)
 
 ## Quick Start
 
@@ -33,6 +40,8 @@ Windows desktop agent that detects configured game executables and opens a LeetC
    - Set `leetcode_problem_url` to the current problem URL you want to enforce.
    - Adjust other settings as required.
 
+3. For native desktop UI support, ensure Fyne prerequisites are installed on Windows (`gcc` via MinGW-w64 is typically required for cgo builds).
+
 ## Config Fields
 
 - `poll_interval_seconds`: process scan frequency.
@@ -46,6 +55,13 @@ Windows desktop agent that detects configured game executables and opens a LeetC
 - `dry_run`: when `true`, logs actions without opening browser.
 - `log_polls`: when `true`, writes a heartbeat log each polling cycle.
 - `enable_tray`: when `true`, starts tray UI mode automatically.
+- `open_gui_on_start`: when `true`, launches native desktop UI on tray startup.
+
+Run native UI directly (no tray):
+
+```bash
+bin/queue-up-agent.exe -desktop-ui -config config/config.json
+```
 
 Tray `Mark as Done` behavior:
 
@@ -60,6 +76,23 @@ Recommendation behavior:
 
 - If `backend_base_url` + `user_id` are set and backend responds, agent opens recommended problem URL.
 - If backend is unavailable or returns no recommendation, agent falls back to `leetcode_problem_url`.
+
+## Startup Reliability Notes
+
+- Startup registration now launches with `-tray` so the system tray is always shown on login.
+- `log_file_path` is resolved relative to the config file directory, so startup from `HKCU\Run` no longer depends on current working directory.
+- `startup.sh` now looks for `bin/queue-up-agent.exe` first to match quickstart builds.
+
+## Icon Consistency (Tray + EXE)
+
+- Tray icon is sourced from `internal/tray/assets/queue_up.ico`.
+- To embed the same icon into the Windows executable, run:
+
+```powershell
+./build-windows.ps1
+```
+
+If `rsrc` is installed, this script generates `cmd/queue-up-agent/queue_up.syso` from the same `.ico` before build.
 
 ## Next Steps
 

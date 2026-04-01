@@ -48,6 +48,12 @@ curl http://localhost:8080/health
 - `GET /v1/recommendation/today?user_id=<uuid>`
 - `POST /v1/completions`
 - `GET /v1/daily-queue?user_id=<uuid>&date=YYYY-MM-DD` (`date` optional)
+- `GET /v1/concepts`
+- `GET /v1/users/by-leetcode?username=<leetcode_username>`
+- `POST /v1/users/bootstrap` (creates first-time local user after LeetCode username verification)
+- `PUT /v1/users/{user_id}/concepts` (set preferred categories)
+- `POST /v1/users/{user_id}/queue/refresh` (refresh today's queue)
+- `GET /v1/users/{user_id}/history?limit=50` (recent completed problems)
 
 Example:
 

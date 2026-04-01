@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -15,6 +16,7 @@ import (
 
 	"queue_up/desktop-agent/internal/client"
 	"queue_up/desktop-agent/internal/config"
+	"queue_up/desktop-agent/internal/desktopui"
 	"queue_up/desktop-agent/internal/detector"
 	"queue_up/desktop-agent/internal/enforcer"
 	"queue_up/desktop-agent/internal/eventlogger"
@@ -25,6 +27,7 @@ import (
 func main() {
 	configPath := flag.String("config", "", "Path to desktop agent config JSON")
 	trayMode := flag.Bool("tray", false, "Run with system tray UI")
+	desktopMode := flag.Bool("desktop-ui", false, "Run native desktop UI")
 	installStartup := flag.Bool("install-startup", false, "Register this executable in Windows Startup Apps")
 	uninstallStartup := flag.Bool("uninstall-startup", false, "Remove this executable from Windows Startup Apps")
 	startupStatus := flag.Bool("startup-status", false, "Print Windows Startup Apps registration status")
@@ -33,6 +36,10 @@ func main() {
 
 	if *configPath == "" {
 		*configPath = defaultConfigPath()
+	}
+	absConfigPath, err := filepath.Abs(*configPath)
+	if err == nil {
+		*configPath = absConfigPath
 	}
 
 	if *installStartup || *uninstallStartup || *startupStatus {
@@ -45,6 +52,12 @@ func main() {
 	cfg, err := config.Load(*configPath)
 	if err != nil {
 		log.Fatalf("load config: %v", err)
+	}
+	if *desktopMode {
+		if err := desktopui.Run(cfg); err != nil {
+			log.Fatalf("desktop ui failed: %v", err)
+		}
+		return
 	}
 
 	logger, err := eventlogger.NewJSONL(cfg.LogFilePath)
@@ -65,9 +78,12 @@ func main() {
 	httpClient := &http.Client{Timeout: cfg.RequestTimeout}
 
 	if *trayMode || cfg.EnableTray {
-		rt := newAgentRuntime(cfg, logger, lastTriggered, httpClient)
+		rt := newAgentRuntime(cfg, *configPath, logger, lastTriggered, httpClient)
 		rt.startLoop()
 		log.Printf("tray mode enabled")
+		if cfg.OpenGUIOnStart {
+			rt.OpenDashboard()
+		}
 		tray.Run(rt)
 		rt.wait()
 		return
@@ -164,6 +180,7 @@ type agentRuntime struct {
 	logger        *eventlogger.JSONL
 	lastTriggered map[string]time.Time
 	httpClient    *http.Client
+	configPath    string
 
 	mu     sync.Mutex
 	ctx    context.Context
@@ -171,13 +188,14 @@ type agentRuntime struct {
 	wg     sync.WaitGroup
 }
 
-func newAgentRuntime(cfg config.Config, logger *eventlogger.JSONL, lastTriggered map[string]time.Time, httpClient *http.Client) *agentRuntime {
+func newAgentRuntime(cfg config.Config, configPath string, logger *eventlogger.JSONL, lastTriggered map[string]time.Time, httpClient *http.Client) *agentRuntime {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &agentRuntime{
 		cfg:           cfg,
 		logger:        logger,
 		lastTriggered: lastTriggered,
 		httpClient:    httpClient,
+		configPath:    configPath,
 		ctx:           ctx,
 		cancel:        cancel,
 	}
@@ -276,6 +294,33 @@ func (a *agentRuntime) MarkDone() {
 		return
 	}
 	log.Printf("tray marked completion successfully")
+}
+
+func (a *agentRuntime) OpenDashboard() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	if err := launchDesktopUI(a.configPath); err != nil {
+		log.Printf("launch desktop ui: %v", err)
+		return
+	}
+	log.Printf("desktop ui launched")
+}
+
+func launchDesktopUI(configPath string) error {
+	exePath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("resolve executable path: %w", err)
+	}
+	args := []string{"-desktop-ui"}
+	if strings.TrimSpace(configPath) != "" {
+		args = append(args, "-config", configPath)
+	}
+	cmd := exec.Command(exePath, args...)
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("start desktop ui process: %w", err)
+	}
+	return nil
 }
 
 func runAgentLoop(ctx context.Context, cfg config.Config, logger *eventlogger.JSONL, lastTriggered map[string]time.Time, httpClient *http.Client) {

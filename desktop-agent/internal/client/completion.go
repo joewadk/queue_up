@@ -50,7 +50,7 @@ func MarkFirstIncompleteToday(ctx context.Context, httpClient *http.Client, base
 		UserID:       userID,
 		ProblemID:    problemID,
 		Source:       "desktop",
-		Verification: "manual_tray",
+		Verification: "manual",
 	}); err != nil {
 		return 0, err
 	}

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -20,6 +21,7 @@ type rawConfig struct {
 	DryRun              bool     `json:"dry_run"`
 	LogPolls            bool     `json:"log_polls"`
 	EnableTray          bool     `json:"enable_tray"`
+	OpenGUIOnStart      bool     `json:"open_gui_on_start"`
 }
 
 type Config struct {
@@ -34,6 +36,7 @@ type Config struct {
 	DryRun             bool
 	LogPolls           bool
 	EnableTray         bool
+	OpenGUIOnStart     bool
 }
 
 func Load(path string) (Config, error) {
@@ -65,7 +68,6 @@ func Load(path string) (Config, error) {
 	if strings.TrimSpace(raw.LogFilePath) == "" {
 		raw.LogFilePath = "logs/enforcement.jsonl"
 	}
-
 	watched := make([]string, 0, len(raw.WatchedExecutables))
 	for _, exe := range raw.WatchedExecutables {
 		trimmed := strings.ToLower(strings.TrimSpace(exe))
@@ -78,6 +80,12 @@ func Load(path string) (Config, error) {
 		return Config{}, fmt.Errorf("watched_executables did not contain valid executable names")
 	}
 
+	configDir := filepath.Dir(path)
+	logPath := strings.TrimSpace(raw.LogFilePath)
+	if !filepath.IsAbs(logPath) {
+		logPath = filepath.Join(configDir, logPath)
+	}
+
 	return Config{
 		PollInterval:       time.Duration(raw.PollIntervalSeconds) * time.Second,
 		Cooldown:           time.Duration(raw.CooldownSeconds) * time.Second,
@@ -86,9 +94,10 @@ func Load(path string) (Config, error) {
 		UserID:             strings.TrimSpace(raw.UserID),
 		RequestTimeout:     time.Duration(raw.RequestTimeoutSec) * time.Second,
 		WatchedExecutables: watched,
-		LogFilePath:        strings.TrimSpace(raw.LogFilePath),
+		LogFilePath:        logPath,
 		DryRun:             raw.DryRun,
 		LogPolls:           raw.LogPolls,
 		EnableTray:         raw.EnableTray,
+		OpenGUIOnStart:     raw.OpenGUIOnStart,
 	}, nil
 }

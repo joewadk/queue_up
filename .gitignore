@@ -1,2 +1,4 @@
 *.env
 edit_pwd.sh
+.gocache
+pkg

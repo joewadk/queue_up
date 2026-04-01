@@ -14,30 +14,32 @@ type recommendationResponse struct {
 }
 
 type recommendationItem struct {
-	ProblemID int64  `json:"problem_id"`
-	Slug      string `json:"slug"`
-	Title     string `json:"title"`
-	URL       string `json:"url"`
+	ProblemID  int64  `json:"problem_id"`
+	Slug       string `json:"slug"`
+	Title      string `json:"title"`
+	URL        string `json:"url"`
+	Difficulty string `json:"difficulty"`
 }
 
 type Recommendation struct {
-	ProblemID int64
-	Slug      string
-	Title     string
-	URL       string
+	ProblemID  int64
+	Slug       string
+	Title      string
+	URL        string
+	Difficulty string
 }
 
-func FetchTodayRecommendation(ctx context.Context, httpClient *http.Client, baseURL, userID string) (Recommendation, error) {
+func FetchTodayRecommendations(ctx context.Context, httpClient *http.Client, baseURL, userID string) ([]Recommendation, error) {
 	if strings.TrimSpace(baseURL) == "" {
-		return Recommendation{}, fmt.Errorf("backend base url is empty")
+		return nil, fmt.Errorf("backend base url is empty")
 	}
 	if strings.TrimSpace(userID) == "" {
-		return Recommendation{}, fmt.Errorf("user_id is empty")
+		return nil, fmt.Errorf("user_id is empty")
 	}
 
 	u, err := url.Parse(strings.TrimRight(baseURL, "/"))
 	if err != nil {
-		return Recommendation{}, fmt.Errorf("parse backend base url: %w", err)
+		return nil, fmt.Errorf("parse backend base url: %w", err)
 	}
 	u.Path = "/v1/recommendation/today"
 	q := u.Query()
@@ -46,35 +48,50 @@ func FetchTodayRecommendation(ctx context.Context, httpClient *http.Client, base
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
-		return Recommendation{}, fmt.Errorf("build recommendation request: %w", err)
+		return nil, fmt.Errorf("build recommendation request: %w", err)
 	}
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return Recommendation{}, fmt.Errorf("request recommendation: %w", err)
+		return nil, fmt.Errorf("request recommendation: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return Recommendation{}, fmt.Errorf("recommendation status=%d", resp.StatusCode)
+		return nil, fmt.Errorf("recommendation status=%d", resp.StatusCode)
 	}
 
 	var payload recommendationResponse
 	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		return Recommendation{}, fmt.Errorf("decode recommendation: %w", err)
+		return nil, fmt.Errorf("decode recommendation: %w", err)
 	}
 	if len(payload.Recommendations) == 0 {
-		return Recommendation{}, fmt.Errorf("no recommendations returned")
+		return nil, fmt.Errorf("no recommendations returned")
 	}
 
-	first := payload.Recommendations[0]
-	if strings.TrimSpace(first.URL) == "" {
-		return Recommendation{}, fmt.Errorf("recommended URL is empty")
+	out := make([]Recommendation, 0, len(payload.Recommendations))
+	for _, item := range payload.Recommendations {
+		if strings.TrimSpace(item.URL) == "" {
+			continue
+		}
+		out = append(out, Recommendation{
+			ProblemID:  item.ProblemID,
+			Slug:       strings.TrimSpace(item.Slug),
+			Title:      strings.TrimSpace(item.Title),
+			URL:        strings.TrimSpace(item.URL),
+			Difficulty: strings.TrimSpace(item.Difficulty),
+		})
 	}
-	return Recommendation{
-		ProblemID: first.ProblemID,
-		Slug:      strings.TrimSpace(first.Slug),
-		Title:     strings.TrimSpace(first.Title),
-		URL:       strings.TrimSpace(first.URL),
-	}, nil
+	if len(out) == 0 {
+		return nil, fmt.Errorf("recommended URLs are empty")
+	}
+	return out, nil
+}
+
+func FetchTodayRecommendation(ctx context.Context, httpClient *http.Client, baseURL, userID string) (Recommendation, error) {
+	recs, err := FetchTodayRecommendations(ctx, httpClient, baseURL, userID)
+	if err != nil {
+		return Recommendation{}, err
+	}
+	return recs[0], nil
 }
