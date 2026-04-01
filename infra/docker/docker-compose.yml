@@ -41,6 +41,8 @@ services:
       DATABASE_URL: "postgres://queue_up:${POSTGRES_PASSWORD}@postgres:5432/queue_up?sslmode=disable"
       SUBMISSION_SANITIZER_WEBHOOK_URL: "http://submission-sanitizer-java:8090/v1/submissions/sanitize"
       SUBMISSION_SANITIZER_WEBHOOK_TIMEOUT_MS: "3000"
+      LEETCODE_API_BASE_URL: "https://leetcode-api-pied.vercel.app"
+      LEETCODE_API_TIMEOUT_MS: "4000"
     ports:
       - "8080:8080"
     depends_on:

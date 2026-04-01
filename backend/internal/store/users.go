@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -250,34 +251,28 @@ func (db *DB) RefreshTodayRecommendations(ctx context.Context, userID string) (t
 		loc = time.UTC
 	}
 	today := startOfDayInLocation(time.Now(), loc)
-	existingAssignments, err := queryAssignments(ctx, tx, userID, today)
+	completedPositions := make(map[int16]struct{})
+	rows, err := tx.Query(ctx, `
+		SELECT position
+		FROM daily_assignments
+		WHERE user_id = $1
+		  AND assignment_date = $2
+		  AND status = 'COMPLETED'
+	`, userID, today)
 	if err != nil {
-		return time.Time{}, nil, err
+		return time.Time{}, nil, fmt.Errorf("query completed positions: %w", err)
 	}
-	completedPositions := make(map[int16]struct{}, len(existingAssignments))
-	for _, a := range existingAssignments {
-		rows, qErr := tx.Query(ctx, `
-			SELECT status
-			FROM daily_assignments
-			WHERE user_id = $1 AND assignment_date = $2 AND position = $3
-		`, userID, today, a.Position)
-		if qErr != nil {
-			return time.Time{}, nil, fmt.Errorf("query assignment status: %w", qErr)
+	for rows.Next() {
+		var pos int16
+		if scanErr := rows.Scan(&pos); scanErr != nil {
+			rows.Close()
+			return time.Time{}, nil, fmt.Errorf("scan completed position: %w", scanErr)
 		}
-		for rows.Next() {
-			var status string
-			if scanErr := rows.Scan(&status); scanErr != nil {
-				rows.Close()
-				return time.Time{}, nil, fmt.Errorf("scan assignment status: %w", scanErr)
-			}
-			if strings.EqualFold(strings.TrimSpace(status), "COMPLETED") {
-				completedPositions[a.Position] = struct{}{}
-			}
-		}
-		rows.Close()
-		if rows.Err() != nil {
-			return time.Time{}, nil, fmt.Errorf("iterate assignment status rows: %w", rows.Err())
-		}
+		completedPositions[pos] = struct{}{}
+	}
+	rows.Close()
+	if rows.Err() != nil {
+		return time.Time{}, nil, fmt.Errorf("iterate completed positions: %w", rows.Err())
 	}
 
 	if _, err := tx.Exec(ctx, `
@@ -293,11 +288,6 @@ func (db *DB) RefreshTodayRecommendations(ctx context.Context, userID string) (t
 	if err != nil {
 		return time.Time{}, nil, err
 	}
-	candidates, err := queryCandidates(ctx, tx, userID, prefIDs)
-	if err != nil {
-		return time.Time{}, nil, err
-	}
-
 	positionToFill := make([]int16, 0, dailyLimit)
 	for i := 1; i <= dailyLimit; i++ {
 		pos := int16(i)
@@ -305,6 +295,26 @@ func (db *DB) RefreshTodayRecommendations(ctx context.Context, userID string) (t
 			continue
 		}
 		positionToFill = append(positionToFill, pos)
+	}
+
+	candidates, err := queryCandidates(ctx, tx, userID, prefIDs)
+	if err != nil {
+		return time.Time{}, nil, err
+	}
+	if len(candidates) < len(positionToFill) {
+		if seedErr := db.seedLeetCodeAPIFallback(ctx, tx, prefIDs); seedErr == nil {
+			refreshed, requeryErr := queryCandidates(ctx, tx, userID, prefIDs)
+			if requeryErr == nil {
+				candidates = refreshed
+			}
+		}
+	}
+	// Backfill from global candidates if preferred-category inventory is short.
+	if len(candidates) < len(positionToFill) && len(prefIDs) > 0 {
+		fallbackCandidates, fallbackErr := queryCandidates(ctx, tx, userID, nil)
+		if fallbackErr == nil {
+			candidates = mergeUniqueRecommendations(candidates, fallbackCandidates, len(positionToFill))
+		}
 	}
 
 	for i, c := range candidates {
@@ -329,6 +339,180 @@ func (db *DB) RefreshTodayRecommendations(ctx context.Context, userID string) (t
 		return time.Time{}, nil, fmt.Errorf("commit refresh tx: %w", err)
 	}
 	return today, assignments, nil
+}
+
+type leetCodeTagResponse struct {
+	Tag      string `json:"tag"`
+	Problems []struct {
+		Title      string `json:"title"`
+		TitleSlug  string `json:"title_slug"`
+		URL        string `json:"url"`
+		Difficulty string `json:"difficulty"`
+		PaidOnly   bool   `json:"paid_only"`
+	} `json:"problems"`
+}
+
+func (db *DB) seedLeetCodeAPIFallback(ctx context.Context, tx pgx.Tx, prefIDs []int64) error {
+	baseURL := strings.TrimSpace(db.leetCodeAPIBaseURL)
+	if baseURL == "" {
+		return fmt.Errorf("leetcode api base url is empty")
+	}
+	httpClient := db.leetCodeAPIHTTPClient
+	if httpClient == nil {
+		httpClient = &http.Client{Timeout: 4 * time.Second}
+	}
+
+	conceptRows, err := tx.Query(ctx, `
+		SELECT id, code
+		FROM concepts
+		WHERE id = ANY($1)
+	`, prefIDs)
+	if err != nil {
+		return fmt.Errorf("query preferred concept codes: %w", err)
+	}
+	type conceptTag struct {
+		id      int64
+		apiSlug string
+	}
+	var targets []conceptTag
+	for conceptRows.Next() {
+		var id int64
+		var code string
+		if scanErr := conceptRows.Scan(&id, &code); scanErr != nil {
+			conceptRows.Close()
+			return fmt.Errorf("scan preferred concept code: %w", scanErr)
+		}
+		tag, ok := conceptCodeToLeetCodeTag(strings.TrimSpace(code))
+		if !ok {
+			continue
+		}
+		targets = append(targets, conceptTag{id: id, apiSlug: tag})
+	}
+	conceptRows.Close()
+	if conceptRows.Err() != nil {
+		return fmt.Errorf("iterate preferred concept codes: %w", conceptRows.Err())
+	}
+	if len(targets) == 0 {
+		return fmt.Errorf("no preferred concept tags to seed")
+	}
+
+	for _, target := range targets {
+		endpoint := strings.TrimRight(baseURL, "/") + "/problems/tag/" + url.PathEscape(target.apiSlug)
+		req, reqErr := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+		if reqErr != nil {
+			return fmt.Errorf("build leetcode api request: %w", reqErr)
+		}
+		resp, httpErr := httpClient.Do(req)
+		if httpErr != nil {
+			return fmt.Errorf("leetcode api request failed: %w", httpErr)
+		}
+		var payload leetCodeTagResponse
+		if decodeErr := json.NewDecoder(resp.Body).Decode(&payload); decodeErr != nil {
+			resp.Body.Close()
+			return fmt.Errorf("decode leetcode api response: %w", decodeErr)
+		}
+		resp.Body.Close()
+		if resp.StatusCode < 200 || resp.StatusCode > 299 {
+			return fmt.Errorf("leetcode api status=%d", resp.StatusCode)
+		}
+
+		inserted := 0
+		for _, p := range payload.Problems {
+			if p.PaidOnly {
+				continue
+			}
+			slug := strings.TrimSpace(p.TitleSlug)
+			title := strings.TrimSpace(p.Title)
+			problemURL := strings.TrimSpace(p.URL)
+			diff := normalizeDifficulty(strings.TrimSpace(p.Difficulty))
+			if slug == "" || title == "" || problemURL == "" {
+				continue
+			}
+			if _, execErr := tx.Exec(ctx, `
+				INSERT INTO problems (slug, title, difficulty, url, source_set, active)
+				VALUES ($1, $2, $3, $4, 'LEETCODE_API', true)
+				ON CONFLICT (slug) DO UPDATE
+				SET title = EXCLUDED.title,
+				    difficulty = EXCLUDED.difficulty,
+				    url = EXCLUDED.url,
+				    active = true
+			`, slug, title, diff, problemURL); execErr != nil {
+				return fmt.Errorf("upsert leetcode api problem: %w", execErr)
+			}
+			if _, execErr := tx.Exec(ctx, `
+				INSERT INTO problem_concepts (problem_id, concept_id)
+				SELECT p.id, $2
+				FROM problems p
+				WHERE p.slug = $1
+				ON CONFLICT DO NOTHING
+			`, slug, target.id); execErr != nil {
+				return fmt.Errorf("upsert leetcode api concept map: %w", execErr)
+			}
+			inserted++
+			if inserted >= 30 {
+				break
+			}
+		}
+	}
+	return nil
+}
+
+func conceptCodeToLeetCodeTag(code string) (string, bool) {
+	switch strings.ToUpper(strings.TrimSpace(code)) {
+	case "ARRAY":
+		return "array", true
+	case "TWO_POINTER":
+		return "two-pointers", true
+	case "STACK":
+		return "stack", true
+	case "BINARY_SEARCH":
+		return "binary-search", true
+	case "SLIDING_WINDOW":
+		return "sliding-window", true
+	case "LINKED_LIST":
+		return "linked-list", true
+	case "TREE":
+		return "tree", true
+	case "HEAP_PRIORITY_QUEUE":
+		return "heap-priority-queue", true
+	case "BACKTRACKING":
+		return "backtracking", true
+	case "TRIE":
+		return "trie", true
+	case "INTERVAL":
+		return "interval", true
+	case "GREEDY":
+		return "greedy", true
+	case "BIT_MANIPULATION":
+		return "bit-manipulation", true
+	case "PREFIX_SUM":
+		return "prefix-sum", true
+	case "GRAPH":
+		return "graph", true
+	case "DP":
+		return "dynamic-programming", true
+	case "DFS":
+		return "depth-first-search", true
+	case "BFS":
+		return "breadth-first-search", true
+	case "QUEUE":
+		return "queue", true
+	default:
+		return "", false
+	}
+}
+
+func normalizeDifficulty(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "easy":
+		return "Easy"
+	case "hard":
+		return "Hard"
+	case "medium":
+		return "Medium"
+	default:
+		return "Medium"
+	}
 }
 
 func (db *DB) ListCompletedProblems(ctx context.Context, userID string, limit int) ([]CompletedProblem, error) {

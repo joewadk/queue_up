@@ -11,6 +11,8 @@ type Config struct {
 	DatabaseURL                       string
 	SubmissionSanitizerWebhookURL     string
 	SubmissionSanitizerWebhookTimeout time.Duration
+	LeetCodeAPIBaseURL                string
+	LeetCodeAPITimeout                time.Duration
 }
 
 // load in the env vars
@@ -20,6 +22,8 @@ func Load() Config {
 		DatabaseURL:                       envOrDefault("DATABASE_URL", "postgres://queue_up@localhost:5432/queue_up?sslmode=disable"),
 		SubmissionSanitizerWebhookURL:     envOrDefault("SUBMISSION_SANITIZER_WEBHOOK_URL", ""),
 		SubmissionSanitizerWebhookTimeout: envDurationOrDefault("SUBMISSION_SANITIZER_WEBHOOK_TIMEOUT_MS", 3000*time.Millisecond),
+		LeetCodeAPIBaseURL:                envOrDefault("LEETCODE_API_BASE_URL", "https://leetcode-api-pied.vercel.app"),
+		LeetCodeAPITimeout:                envDurationOrDefault("LEETCODE_API_TIMEOUT_MS", 4000*time.Millisecond),
 	}
 }
 

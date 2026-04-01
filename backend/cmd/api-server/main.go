@@ -26,6 +26,7 @@ func main() {
 	}
 	defer db.Close()
 	db.ConfigureSubmissionSanitizerWebhook(cfg.SubmissionSanitizerWebhookURL, cfg.SubmissionSanitizerWebhookTimeout)
+	db.ConfigureLeetCodeAPI(cfg.LeetCodeAPIBaseURL, cfg.LeetCodeAPITimeout)
 
 	h := server.New(db)
 	srv := &http.Server{

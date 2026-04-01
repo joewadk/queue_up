@@ -23,7 +23,8 @@ type Recommendation struct {
 	ConceptCode string `json:"concept_code"`
 	ConceptName string `json:"concept_name"`
 }
-//get or create today's recommendations for a user. if the user already has assignments for today, return those.
+
+// get or create today's recommendations for a user. if the user already has assignments for today, return those.
 func (db *DB) GetOrCreateTodayRecommendations(ctx context.Context, userID string) (time.Time, []Recommendation, error) {
 	tx, err := db.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -65,6 +66,21 @@ func (db *DB) GetOrCreateTodayRecommendations(ctx context.Context, userID string
 	if err != nil {
 		return time.Time{}, nil, err
 	}
+	if len(candidates) < dailyLimit {
+		if seedErr := db.seedLeetCodeAPIFallback(ctx, tx, prefIDs); seedErr == nil {
+			refreshed, requeryErr := queryCandidates(ctx, tx, userID, prefIDs)
+			if requeryErr == nil {
+				candidates = refreshed
+			}
+		}
+	}
+	// If preferred-category inventory is short, backfill from global candidates.
+	if len(candidates) < dailyLimit && len(prefIDs) > 0 {
+		fallbackCandidates, fallbackErr := queryCandidates(ctx, tx, userID, nil)
+		if fallbackErr == nil {
+			candidates = mergeUniqueRecommendations(candidates, fallbackCandidates, dailyLimit)
+		}
+	}
 
 	for i, c := range candidates {
 		position := int16(i + 1)
@@ -88,8 +104,9 @@ func (db *DB) GetOrCreateTodayRecommendations(ctx context.Context, userID string
 	}
 	return today, assignments, nil
 }
-//helper functions for querying the db for recommendations and related data. 
-//these are used in the GetOrCreateTodayRecommendations method above.
+
+// helper functions for querying the db for recommendations and related data.
+// these are used in the GetOrCreateTodayRecommendations method above.
 func queryAssignments(ctx context.Context, tx pgx.Tx, userID string, date time.Time) ([]Recommendation, error) {
 	rows, err := tx.Query(ctx, `
 		SELECT
@@ -113,6 +130,7 @@ func queryAssignments(ctx context.Context, tx pgx.Tx, userID string, date time.T
 		) c ON true
 		WHERE da.user_id = $1
 		  AND da.assignment_date = $2
+		  AND da.status = 'ASSIGNED'
 		ORDER BY da.position
 	`, userID, date)
 	if err != nil {
@@ -142,8 +160,9 @@ func queryAssignments(ctx context.Context, tx pgx.Tx, userID string, date time.T
 	}
 	return out, nil
 }
-//helper functions for querying the db for recommendations and related data. 
-//these are used in the GetOrCreateTodayRecommendations method above.
+
+// helper functions for querying the db for recommendations and related data.
+// these are used in the GetOrCreateTodayRecommendations method above.
 func queryPreferredConceptIDs(ctx context.Context, tx pgx.Tx, userID string) ([]int64, error) {
 	rows, err := tx.Query(ctx, `
 		SELECT concept_id
@@ -179,6 +198,7 @@ func queryCandidates(ctx context.Context, tx pgx.Tx, userID string, prefIDs []in
 				p.title,
 				p.url,
 				p.difficulty,
+				p.source_set,
 				c.code,
 				c.display_name,
 				ROW_NUMBER() OVER (PARTITION BY p.id ORDER BY c.id) AS rn
@@ -186,19 +206,12 @@ func queryCandidates(ctx context.Context, tx pgx.Tx, userID string, prefIDs []in
 			JOIN problem_concepts pc ON pc.problem_id = p.id
 			JOIN concepts c ON c.id = pc.concept_id
 			WHERE p.active = true
-			  AND p.source_set = 'NEETCODE_150'
-			  AND p.difficulty = 'Easy'
+			  AND p.source_set IN ('NEETCODE_150', 'LEETCODE_API')
 			  AND NOT EXISTS (
 				SELECT 1
 				FROM problem_attempts pa
 				WHERE pa.user_id = $1
 				  AND pa.problem_id = p.id
-			  )
-			  AND NOT EXISTS (
-				SELECT 1
-				FROM daily_assignments da
-				WHERE da.user_id = $1
-				  AND da.problem_id = p.id
 			  )
 	`
 	var rows pgx.Rows
@@ -218,7 +231,13 @@ func queryCandidates(ctx context.Context, tx pgx.Tx, userID string, prefIDs []in
 			display_name
 		FROM ranked
 		WHERE rn = 1
-		ORDER BY id
+		ORDER BY
+			CASE source_set
+				WHEN 'NEETCODE_150' THEN 1
+				WHEN 'LEETCODE_API' THEN 2
+				ELSE 3
+			END,
+			id
 		LIMIT 3
 	`, userID, prefIDs)
 	} else {
@@ -235,7 +254,13 @@ func queryCandidates(ctx context.Context, tx pgx.Tx, userID string, prefIDs []in
 			display_name
 		FROM ranked
 		WHERE rn = 1
-		ORDER BY id
+		ORDER BY
+			CASE source_set
+				WHEN 'NEETCODE_150' THEN 1
+				WHEN 'LEETCODE_API' THEN 2
+				ELSE 3
+			END,
+			id
 		LIMIT 3
 	`, userID)
 	}
@@ -265,4 +290,33 @@ func queryCandidates(ctx context.Context, tx pgx.Tx, userID string, prefIDs []in
 		return nil, fmt.Errorf("iterate candidates: %w", rows.Err())
 	}
 	return out, nil
+}
+
+func mergeUniqueRecommendations(primary, fallback []Recommendation, limit int) []Recommendation {
+	if limit <= 0 {
+		limit = dailyLimit
+	}
+	out := make([]Recommendation, 0, limit)
+	seen := make(map[int64]struct{}, limit)
+	for _, r := range primary {
+		if len(out) >= limit {
+			return out
+		}
+		if _, ok := seen[r.ProblemID]; ok {
+			continue
+		}
+		seen[r.ProblemID] = struct{}{}
+		out = append(out, r)
+	}
+	for _, r := range fallback {
+		if len(out) >= limit {
+			break
+		}
+		if _, ok := seen[r.ProblemID]; ok {
+			continue
+		}
+		seen[r.ProblemID] = struct{}{}
+		out = append(out, r)
+	}
+	return out
 }

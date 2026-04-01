@@ -45,6 +45,13 @@ export SUBMISSION_SANITIZER_WEBHOOK_TIMEOUT_MS="3000"
 
 `/v1/completions` now requires the sanitizer webhook to be configured and reachable.
 
+Optional recommender fallback env vars (LeetCode API seed):
+
+```bash
+export LEETCODE_API_BASE_URL="https://leetcode-api-pied.vercel.app"
+export LEETCODE_API_TIMEOUT_MS="4000"
+```
+
 Health check:
 
 ```bash

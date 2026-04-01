@@ -3,3 +3,5 @@ edit_pwd.sh
 .gocache
 pkg
 .vscode
+submission-sanitizer-java/target/
+submission-sanitizer-java/target/
