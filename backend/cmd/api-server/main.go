@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -15,12 +16,16 @@ import (
 
 func main() {
 	cfg := config.Load()
+	if strings.TrimSpace(cfg.SubmissionSanitizerWebhookURL) == "" {
+		log.Fatal("SUBMISSION_SANITIZER_WEBHOOK_URL is required")
+	}
 
 	db, err := store.Open(cfg.DatabaseURL)
 	if err != nil {
 		log.Fatalf("open db: %v", err)
 	}
 	defer db.Close()
+	db.ConfigureSubmissionSanitizerWebhook(cfg.SubmissionSanitizerWebhookURL, cfg.SubmissionSanitizerWebhookTimeout)
 
 	h := server.New(db)
 	srv := &http.Server{

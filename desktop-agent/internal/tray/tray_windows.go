@@ -12,7 +12,6 @@ import (
 
 type Actions interface {
 	OpenToday()
-	MarkDone()
 	OpenDashboard()
 	Stop()
 }
@@ -25,7 +24,6 @@ func Run(actions Actions) {
 		systray.SetTooltip("Queue Up Desktop Agent")
 
 		openItem := systray.AddMenuItem("Open Today's Problem", "Open current recommended LeetCode problem")
-		doneItem := systray.AddMenuItem("Mark as Done", "Mark today's problem complete")
 		dashboardItem := systray.AddMenuItem("Open Dashboard", "Open Queue Up Desktop dashboard")
 		systray.AddSeparator()
 		quitItem := systray.AddMenuItem("Quit", "Stop the desktop agent")
@@ -35,8 +33,6 @@ func Run(actions Actions) {
 				select {
 				case <-openItem.ClickedCh:
 					actions.OpenToday()
-				case <-doneItem.ClickedCh:
-					actions.MarkDone()
 				case <-dashboardItem.ClickedCh:
 					actions.OpenDashboard()
 				case <-quitItem.ClickedCh:

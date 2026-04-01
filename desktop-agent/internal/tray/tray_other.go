@@ -6,7 +6,6 @@ package tray
 
 type Actions interface {
 	OpenToday()
-	MarkDone()
 	OpenDashboard()
 	Stop()
 }

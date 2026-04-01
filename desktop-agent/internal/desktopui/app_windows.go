@@ -5,6 +5,7 @@ package desktopui
 import (
 	"context"
 	"fmt"
+	"image/color"
 	"net/http"
 	"net/url"
 	"strings"
@@ -12,6 +13,7 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/widget"
@@ -21,10 +23,23 @@ import (
 	"queue_up/desktop-agent/internal/config"
 )
 
+const (
+	prefKeyLastLeetCodeUsername = "last_leetcode_username"
+	prefKeyLastUserID           = "last_user_id"
+	prefKeyLastConceptName      = "last_concept_name"
+	prefKeyLastConceptCode      = "last_concept_code"
+)
+
 func Run(cfg config.Config) error {
 	if strings.TrimSpace(cfg.BackendBaseURL) == "" {
 		return fmt.Errorf("backend_base_url is required")
 	}
+
+	release, err := acquireDashboardInstanceLock()
+	if err != nil {
+		return err
+	}
+	defer release()
 
 	a := app.NewWithID("queueup.desktop")
 	a.SetIcon(fyne.NewStaticResource("queue_up.ico", appicon.Bytes()))
@@ -37,20 +52,84 @@ func Run(cfg config.Config) error {
 		httpClient: httpClient,
 		userID:     strings.TrimSpace(cfg.UserID),
 	}
+	prefs := a.Preferences()
+	rememberedUsername := strings.TrimSpace(prefs.String(prefKeyLastLeetCodeUsername))
+	rememberedUserID := strings.TrimSpace(prefs.String(prefKeyLastUserID))
+	rememberedConceptName := strings.TrimSpace(prefs.String(prefKeyLastConceptName))
+	rememberedConceptCode := strings.TrimSpace(prefs.String(prefKeyLastConceptCode))
+	if state.userID == "" && rememberedUserID != "" {
+		state.userID = rememberedUserID
+	}
 
 	usernameEntry := widget.NewEntry()
 	usernameEntry.SetPlaceHolder("LeetCode username")
+	if rememberedUsername != "" {
+		usernameEntry.SetText(rememberedUsername)
+		state.leetcodeUsername = rememberedUsername
+	}
 	submissionEntry := widget.NewEntry()
 	submissionEntry.SetPlaceHolder("Required submission URL")
 	statusLabel := widget.NewLabel("Sign in with your LeetCode username.")
+	todayWarningText := canvas.NewText("No Problems Submitted Today", color.White)
+	todayWarningText.TextStyle = fyne.TextStyle{Bold: true}
+	todayWarningText.Alignment = fyne.TextAlignCenter
+	todayWarningText.TextSize = 12
+	todayWarningBg := canvas.NewRectangle(color.NRGBA{R: 196, G: 48, B: 48, A: 255})
+	todayWarningBg.CornerRadius = 10
+	todayWarningPill := container.NewStack(todayWarningBg, container.NewPadded(todayWarningText))
+	todayWarningPill.Hide()
+	studyPlanSavedText := canvas.NewText("Study plan updated successfully", color.White)
+	studyPlanSavedText.TextStyle = fyne.TextStyle{Bold: true}
+	studyPlanSavedText.Alignment = fyne.TextAlignCenter
+	studyPlanSavedText.TextSize = 12
+	studyPlanSavedBg := canvas.NewRectangle(color.NRGBA{R: 20, G: 138, B: 78, A: 255})
+	studyPlanSavedBg.CornerRadius = 10
+	studyPlanSavedPill := container.NewStack(studyPlanSavedBg, container.NewPadded(studyPlanSavedText))
+	studyPlanSavedPill.Hide()
 	selectedCategoryLabel := widget.NewLabel("Selected category: none")
+	categoryPillText := canvas.NewText("No category", color.White)
+	categoryPillText.TextStyle = fyne.TextStyle{Bold: true}
+	categoryPillText.Alignment = fyne.TextAlignCenter
+	categoryPillText.TextSize = 12
+	categoryPillBg := canvas.NewRectangle(color.NRGBA{R: 16, G: 140, B: 84, A: 255})
+	categoryPillBg.CornerRadius = 10
+	categoryPill := container.NewStack(categoryPillBg, container.NewPadded(categoryPillText))
+	if rememberedConceptName != "" {
+		categoryPillText.Text = rememberedConceptName
+		categoryPillText.Refresh()
+	}
 
 	queueSelect := widget.NewSelect([]string{}, func(selected string) {
 		state.selectedQueueOption = selected
 	})
-	historyList := widget.NewMultiLineEntry()
-	historyList.Wrapping = fyne.TextWrapWord
-	historyList.Disable()
+	completedTodayList := widget.NewList(
+		func() int {
+			return len(state.todayLeetCodeHistory)
+		},
+		func() fyne.CanvasObject {
+			title := widget.NewLabel("")
+			title.Wrapping = fyne.TextWrapWord
+			title.TextStyle = fyne.TextStyle{Bold: true}
+			meta := widget.NewLabel("")
+			meta.Wrapping = fyne.TextWrapWord
+			link := widget.NewLabel("")
+			link.Wrapping = fyne.TextWrapWord
+			return container.NewVBox(title, meta, link, widget.NewSeparator())
+		},
+		func(i widget.ListItemID, item fyne.CanvasObject) {
+			if i < 0 || i >= len(state.todayLeetCodeHistory) {
+				return
+			}
+			row := state.todayLeetCodeHistory[i]
+			box := item.(*fyne.Container)
+			title := box.Objects[0].(*widget.Label)
+			meta := box.Objects[1].(*widget.Label)
+			link := box.Objects[2].(*widget.Label)
+			title.SetText("✓ " + row.Title)
+			meta.SetText("Accepted at " + formatLeetCodeTimestamp(row.Timestamp))
+			link.SetText("https://leetcode.com/problems/" + row.TitleSlug + "/")
+		},
+	)
 	leetCodeHistoryList := widget.NewList(
 		func() int {
 			return len(state.leetCodeHistory)
@@ -98,6 +177,11 @@ func Run(cfg config.Config) error {
 			btn := widget.NewButton(label, func() {
 				state.selectedConceptCode = strings.TrimSpace(c.Code)
 				selectedCategoryLabel.SetText("Selected category: " + c.DisplayName)
+				prefs.SetString(prefKeyLastConceptName, c.DisplayName)
+				prefs.SetString(prefKeyLastConceptCode, state.selectedConceptCode)
+				categoryPillText.Text = c.DisplayName
+				categoryPillText.Refresh()
+				studyPlanSavedPill.Hide()
 				renderConceptOptions()
 			})
 			conceptsGrid.Add(btn)
@@ -105,23 +189,29 @@ func Run(cfg config.Config) error {
 		conceptsGrid.Refresh()
 	}
 
-	refreshHistory := func() {
-		if state.userID == "" {
-			historyList.SetText("")
-			return
+	updateTodaySubmissionView := func() {
+		loc := time.Now().Location()
+		today := time.Now().In(loc).Format("2006-01-02")
+		filtered := make([]client.LeetCodeSubmission, 0, len(state.leetCodeHistory))
+		for _, row := range state.leetCodeHistory {
+			t, ok := parseLeetCodeTimestamp(row.Timestamp)
+			if !ok {
+				continue
+			}
+			if t.In(loc).Format("2006-01-02") == today {
+				filtered = append(filtered, row)
+			}
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 7*time.Second)
-		defer cancel()
-		out, err := client.FetchHistory(ctx, state.httpClient, state.cfg.BackendBaseURL, state.userID, 50)
-		if err != nil {
-			setStatus("History load failed: " + err.Error())
-			return
+		state.todayLeetCodeHistory = filtered
+		completedTodayList.Refresh()
+		for i := 0; i < len(state.todayLeetCodeHistory); i++ {
+			completedTodayList.SetItemHeight(i, 84)
 		}
-		lines := make([]string, 0, len(out.History))
-		for _, h := range out.History {
-			lines = append(lines, fmt.Sprintf("%s [%s] %s", h.CompletedAt, h.Difficulty, h.Title))
+		if len(state.todayLeetCodeHistory) == 0 {
+			todayWarningPill.Show()
+		} else {
+			todayWarningPill.Hide()
 		}
-		historyList.SetText(strings.Join(lines, "\n"))
 	}
 
 	refreshLeetCodeHistory := func() {
@@ -143,7 +233,8 @@ func Run(cfg config.Config) error {
 		}
 		state.leetCodeHistory = rows
 		leetCodeHistoryList.Refresh()
-		setStatus(fmt.Sprintf("LeetCode history loaded: %d entries", len(rows)))
+		updateTodaySubmissionView()
+		setStatus(fmt.Sprintf("LeetCode history loaded: %d entries (%d today)", len(rows), len(state.todayLeetCodeHistory)))
 	}
 
 	applyQueue := func(recommendations []client.Recommendation, source string) {
@@ -180,12 +271,40 @@ func Run(cfg config.Config) error {
 		if state.userID == "" {
 			return
 		}
+		// Clear stale queue UI immediately so category changes feel instant.
+		queueSelect.SetOptions([]string{})
+		state.selectedQueueOption = ""
+		state.queue = nil
+		state.queueByOption = map[string]client.Recommendation{}
+
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
 		out, err := client.RefreshQueue(ctx, state.httpClient, state.cfg.BackendBaseURL, state.userID)
 		if err == nil && len(out.Recommendations) > 0 {
 			applyQueue(out.Recommendations, "refresh endpoint")
+			return
+		}
+		if err == nil && len(out.Recommendations) == 0 && strings.TrimSpace(state.selectedConceptCode) != "" {
+			queueSelect.SetOptions([]string{})
+			state.selectedQueueOption = ""
+			setStatus("No queue problems available for the selected category.")
+			return
+		}
+
+		dailyQueueOut, dailyQueueErr := client.FetchDailyQueue(ctx, state.httpClient, state.cfg.BackendBaseURL, state.userID)
+		if dailyQueueErr == nil && len(dailyQueueOut.Queue) > 0 {
+			dailyRecs := make([]client.Recommendation, 0, len(dailyQueueOut.Queue))
+			for _, q := range dailyQueueOut.Queue {
+				dailyRecs = append(dailyRecs, client.Recommendation{
+					ProblemID:  q.ProblemID,
+					Slug:       q.Slug,
+					Title:      q.Title,
+					URL:        q.URL,
+					Difficulty: q.Difficulty,
+				})
+			}
+			applyQueue(dailyRecs, "daily queue fallback")
 			return
 		}
 
@@ -199,6 +318,10 @@ func Run(cfg config.Config) error {
 		state.selectedQueueOption = ""
 		if err != nil {
 			setStatus("Queue refresh failed: " + err.Error())
+			return
+		}
+		if dailyQueueErr != nil {
+			setStatus("Queue daily fallback failed: " + dailyQueueErr.Error())
 			return
 		}
 		if fallbackErr != nil {
@@ -226,19 +349,24 @@ func Run(cfg config.Config) error {
 			if _, ok := selectedByCode[strings.ToUpper(c.Code)]; ok {
 				state.selectedConceptCode = strings.TrimSpace(c.Code)
 				selectedCategoryLabel.SetText("Selected category: " + c.DisplayName)
+				prefs.SetString(prefKeyLastConceptName, c.DisplayName)
+				categoryPillText.Text = c.DisplayName
+				categoryPillText.Refresh()
 				break
 			}
 		}
 		if state.selectedConceptCode == "" {
 			selectedCategoryLabel.SetText("Selected category: none")
+			categoryPillText.Text = "No category"
+			categoryPillText.Refresh()
 		}
 		renderConceptOptions()
 	}
 
 	var tabs *container.AppTabs
+	var dashboardTab *container.TabItem
 	var studyTab *container.TabItem
-
-	loginBtn := widget.NewButton("Verify + Continue", func() {
+	doLogin := func() {
 		username := strings.TrimSpace(usernameEntry.Text)
 		if username == "" {
 			dialog.ShowError(fmt.Errorf("LeetCode username is required"), w)
@@ -262,6 +390,8 @@ func Run(cfg config.Config) error {
 		if state.leetcodeUsername == "" {
 			state.leetcodeUsername = username
 		}
+		prefs.SetString(prefKeyLastLeetCodeUsername, state.leetcodeUsername)
+		prefs.SetString(prefKeyLastUserID, state.userID)
 		vStatus := out.VerificationStatus
 		if vStatus == "" {
 			vStatus = "skipped"
@@ -269,13 +399,16 @@ func Run(cfg config.Config) error {
 		setStatus(fmt.Sprintf("User ready. verification=%s", vStatus))
 		loadConcepts(out.Profile.ConceptCodes)
 		refreshQueue()
-		refreshHistory()
 		refreshLeetCodeHistory()
 		if strings.TrimSpace(state.selectedConceptCode) == "" && studyTab != nil && tabs != nil {
 			setStatus("Pick one study category in the Study Category tab, then save it.")
 			tabs.Select(studyTab)
 		}
-	})
+	}
+	loginBtn := widget.NewButton("Verify + Continue", doLogin)
+	usernameEntry.OnSubmitted = func(string) {
+		doLogin()
+	}
 
 	saveConceptsBtn := widget.NewButton("Save Categories", func() {
 		if state.userID == "" {
@@ -294,11 +427,22 @@ func Run(cfg config.Config) error {
 			dialog.ShowError(err, w)
 			return
 		}
+		for _, c := range state.concepts {
+			if strings.EqualFold(strings.TrimSpace(c.Code), code) {
+				prefs.SetString(prefKeyLastConceptName, c.DisplayName)
+				categoryPillText.Text = c.DisplayName
+				categoryPillText.Refresh()
+				break
+			}
+		}
 		setStatus("Study category saved.")
+		studyPlanSavedPill.Show()
 		refreshQueue()
+		if tabs != nil && dashboardTab != nil {
+			tabs.Select(dashboardTab)
+		}
 	})
 
-	refreshQueueBtn := widget.NewButton("Refresh Queue", refreshQueue)
 	refreshLeetCodeHistoryBtn := widget.NewButton("Refresh LeetCode History", refreshLeetCodeHistory)
 
 	markCompleteBtn := widget.NewButton("Mark Selected Complete", func() {
@@ -306,7 +450,15 @@ func Run(cfg config.Config) error {
 			dialog.ShowError(fmt.Errorf("login first"), w)
 			return
 		}
-		selected := strings.TrimSpace(state.selectedQueueOption)
+		selected := strings.TrimSpace(queueSelect.Selected)
+		if selected == "" {
+			selected = strings.TrimSpace(state.selectedQueueOption)
+		}
+		if selected == "" && len(queueSelect.Options) == 1 {
+			selected = queueSelect.Options[0]
+			queueSelect.SetSelected(selected)
+			state.selectedQueueOption = selected
+		}
 		if selected == "" {
 			dialog.ShowError(fmt.Errorf("select a queue problem first"), w)
 			return
@@ -335,16 +487,40 @@ func Run(cfg config.Config) error {
 			if slug == "" {
 				slug = extractProblemSlugFromURL(submissionURL)
 			}
-			if slug == "" {
-				dialog.ShowError(fmt.Errorf("unable to resolve problem id; missing title slug"), w)
+			title := strings.TrimSpace(rec.Title)
+
+			if dailyQueueOut, dailyErr := client.FetchDailyQueue(ctx, state.httpClient, state.cfg.BackendBaseURL, state.userID); dailyErr == nil {
+				for _, item := range dailyQueueOut.Queue {
+					if slug != "" && strings.EqualFold(strings.TrimSpace(item.Slug), slug) {
+						problemID = item.ProblemID
+						break
+					}
+					if title != "" && strings.EqualFold(strings.TrimSpace(item.Title), title) {
+						problemID = item.ProblemID
+						break
+					}
+				}
+			}
+
+			if problemID <= 0 {
+				if todays, todayErr := client.FetchTodayRecommendations(ctx, state.httpClient, state.cfg.BackendBaseURL, state.userID); todayErr == nil {
+					for _, candidate := range todays {
+						if slug != "" && strings.EqualFold(strings.TrimSpace(candidate.Slug), slug) {
+							problemID = candidate.ProblemID
+							break
+						}
+						if title != "" && strings.EqualFold(strings.TrimSpace(candidate.Title), title) {
+							problemID = candidate.ProblemID
+							break
+						}
+					}
+				}
+			}
+
+			if problemID <= 0 {
+				dialog.ShowError(fmt.Errorf("unable to resolve backend problem id for completion"), w)
 				return
 			}
-			resolvedID, resolveErr := client.ResolveProblemFrontendID(ctx, state.httpClient, slug)
-			if resolveErr != nil {
-				dialog.ShowError(fmt.Errorf("resolve problem id via LeetCode failed: %w", resolveErr), w)
-				return
-			}
-			problemID = resolvedID
 		}
 
 		if err := client.MarkCompletion(ctx, state.httpClient, state.cfg.BackendBaseURL, state.userID, problemID, submissionURL); err != nil {
@@ -352,26 +528,26 @@ func Run(cfg config.Config) error {
 			return
 		}
 		setStatus("Problem marked complete.")
-		refreshHistory()
+		refreshLeetCodeHistory()
+		refreshQueue()
 	})
 
 	top := container.NewVBox(
-		widget.NewLabel("Login / Bootstrap"),
+		container.NewBorder(nil, nil, nil, todayWarningPill, widget.NewLabel("Login / Bootstrap")),
 		container.NewBorder(nil, nil, nil, loginBtn, usernameEntry),
 		statusLabel,
 	)
 	queue := container.NewVBox(
 		widget.NewSeparator(),
-		widget.NewLabel("Problem Queue"),
+		container.NewHBox(widget.NewLabel("Problem Queue"), categoryPill),
 		queueSelect,
 		widget.NewLabel("Submission URL (required)"),
 		submissionEntry,
-		container.NewHBox(markCompleteBtn, refreshQueueBtn),
+		container.NewHBox(markCompleteBtn),
 	)
 	history := container.NewVBox(
 		widget.NewSeparator(),
-		widget.NewLabel("Completed Problems"),
-		historyList,
+		widget.NewLabel("Today's LeetCode Submissions"),
 	)
 	leetCodeHistoryHeader := container.NewVBox(
 		widget.NewLabel("LeetCode Accepted Submissions"),
@@ -386,16 +562,23 @@ func Run(cfg config.Config) error {
 		leetCodeHistoryList,
 	)
 
-	dashboardContent := container.NewVBox(top, queue, history)
+	dashboardTop := container.NewVBox(top, queue, history)
+	dashboardContent := container.NewBorder(
+		dashboardTop,
+		nil,
+		nil,
+		nil,
+		completedTodayList,
+	)
 	studyContent := container.NewVBox(
-		widget.NewLabel("Choose one study category."),
+		container.NewBorder(nil, nil, nil, studyPlanSavedPill, widget.NewLabel("Choose one study category.")),
 		widget.NewLabel("You can change this later from this tab."),
 		selectedCategoryLabel,
 		conceptsGrid,
 		container.NewHBox(saveConceptsBtn),
 	)
 
-	dashboardTab := container.NewTabItem("Dashboard", container.NewPadded(dashboardContent))
+	dashboardTab = container.NewTabItem("Dashboard", container.NewPadded(dashboardContent))
 	studyTab = container.NewTabItem("Study Category", container.NewPadded(studyContent))
 	leetCodeHistoryTab := container.NewTabItem("LeetCode History", container.NewPadded(leetCodeHistory))
 	tabs = container.NewAppTabs(dashboardTab, studyTab, leetCodeHistoryTab)
@@ -409,6 +592,33 @@ func Run(cfg config.Config) error {
 		tabs,
 	)
 	w.SetContent(root)
+	if state.userID != "" {
+		initialSelectedCodes := []string{}
+		if rememberedConceptCode != "" {
+			initialSelectedCodes = append(initialSelectedCodes, rememberedConceptCode)
+		}
+		startupUsername := strings.TrimSpace(state.leetcodeUsername)
+		if startupUsername == "" {
+			startupUsername = strings.TrimSpace(usernameEntry.Text)
+		}
+		if startupUsername != "" {
+			ctx, cancel := context.WithTimeout(context.Background(), 7*time.Second)
+			lookup, lookupErr := client.LookupUserByLeetCode(ctx, state.httpClient, state.cfg.BackendBaseURL, startupUsername)
+			cancel()
+			if lookupErr == nil && lookup.Exists {
+				state.userID = strings.TrimSpace(lookup.Profile.UserID)
+				if state.userID != "" {
+					prefs.SetString(prefKeyLastUserID, state.userID)
+				}
+				if len(lookup.Profile.ConceptCodes) > 0 {
+					initialSelectedCodes = lookup.Profile.ConceptCodes
+				}
+			}
+		}
+		loadConcepts(initialSelectedCodes)
+		refreshQueue()
+		refreshLeetCodeHistory()
+	}
 	w.ShowAndRun()
 	return nil
 }
@@ -417,12 +627,13 @@ type uiState struct {
 	cfg        config.Config
 	httpClient *http.Client
 
-	userID           string
-	leetcodeUsername string
-	concepts         []client.Concept
-	queue            []client.Recommendation
-	queueByOption    map[string]client.Recommendation
-	leetCodeHistory  []client.LeetCodeSubmission
+	userID               string
+	leetcodeUsername     string
+	concepts             []client.Concept
+	queue                []client.Recommendation
+	queueByOption        map[string]client.Recommendation
+	todayLeetCodeHistory []client.LeetCodeSubmission
+	leetCodeHistory      []client.LeetCodeSubmission
 
 	selectedConceptCode string
 	selectedQueueOption string
@@ -443,9 +654,17 @@ func extractProblemSlugFromURL(submissionURL string) string {
 }
 
 func formatLeetCodeTimestamp(raw string) string {
-	secs, err := time.ParseDuration(strings.TrimSpace(raw) + "s")
-	if err != nil {
+	t, ok := parseLeetCodeTimestamp(raw)
+	if !ok {
 		return raw
 	}
-	return time.Unix(int64(secs.Seconds()), 0).Local().Format("2006-01-02 15:04")
+	return t.Local().Format("2006-01-02 15:04")
+}
+
+func parseLeetCodeTimestamp(raw string) (time.Time, bool) {
+	secs, err := time.ParseDuration(strings.TrimSpace(raw) + "s")
+	if err != nil {
+		return time.Time{}, false
+	}
+	return time.Unix(int64(secs.Seconds()), 0), true
 }

@@ -25,3 +25,6 @@
 - allow users to select study path (choose one of the categories from neetcode)
 - allow users to see their own submission history in the desktop app
 - allow users to submit the lc submission links to the app to mark their project as done (currently wip)
+- added java webhook (sanitize and verify lc problems) with go backup 
+- dockerized java webhook (submission sanitizer)
+

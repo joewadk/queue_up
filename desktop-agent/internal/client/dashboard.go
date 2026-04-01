@@ -47,6 +47,20 @@ type HistoryResponse struct {
 	History []CompletedProblem `json:"history"`
 }
 
+type DailyQueueResponse struct {
+	Queue []DailyQueueItem `json:"queue"`
+}
+
+type DailyQueueItem struct {
+	Position    int16  `json:"position"`
+	ProblemID   int64  `json:"problem_id"`
+	Slug        string `json:"slug"`
+	Title       string `json:"title"`
+	URL         string `json:"url"`
+	Difficulty  string `json:"difficulty"`
+	IsCompleted bool   `json:"is_completed"`
+}
+
 type CompletedProblem struct {
 	ProblemID     int64  `json:"problem_id"`
 	Slug          string `json:"slug"`
@@ -151,6 +165,26 @@ func RefreshQueue(ctx context.Context, httpClient *http.Client, baseURL, userID 
 	var out RefreshQueueResponse
 	if err := doJSON(httpClient, req, &out); err != nil {
 		return RefreshQueueResponse{}, err
+	}
+	return out, nil
+}
+
+func FetchDailyQueue(ctx context.Context, httpClient *http.Client, baseURL, userID string) (DailyQueueResponse, error) {
+	u, err := parseBase(baseURL, "/v1/daily-queue")
+	if err != nil {
+		return DailyQueueResponse{}, err
+	}
+	q := u.Query()
+	q.Set("user_id", strings.TrimSpace(userID))
+	u.RawQuery = q.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return DailyQueueResponse{}, fmt.Errorf("build daily queue request: %w", err)
+	}
+	var out DailyQueueResponse
+	if err := doJSON(httpClient, req, &out); err != nil {
+		return DailyQueueResponse{}, err
 	}
 	return out, nil
 }

@@ -36,6 +36,15 @@ cd backend
 go run ./cmd/api-server
 ```
 
+Required env vars for submission sanitizer webhook (Java service):
+
+```bash
+export SUBMISSION_SANITIZER_WEBHOOK_URL="http://localhost:8090/v1/submissions/sanitize"
+export SUBMISSION_SANITIZER_WEBHOOK_TIMEOUT_MS="3000"
+```
+
+`/v1/completions` now requires the sanitizer webhook to be configured and reachable.
+
 Health check:
 
 ```bash
@@ -74,6 +83,18 @@ curl -X POST "http://localhost:8080/v1/completions" \
   -H "Content-Type: application/json" \
   -d "{\"user_id\":\"00000000-0000-0000-0000-000000000001\",\"problem_id\":1,\"timestamp\":\"2026-03-31T15:00:00Z\",\"source\":\"desktop\",\"verification\":\"manual\"}"
 ```
+
+Webhook contract (for Java sanitizer):
+
+- Request JSON:
+  - `user_id` (string)
+  - `problem_id` (number)
+  - `expected_slug` (string)
+  - `submission_url` (string)
+- Response JSON:
+  - `valid` (boolean)
+  - `sanitized_submission_url` (string)
+  - `reason` (string, optional; used when `valid=false`)
 
 Daily queue with completion checkbox state:
 

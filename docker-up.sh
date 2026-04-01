@@ -12,5 +12,11 @@ docker compose --project-name queue_up --env-file .env -f infra/docker/docker-co
 
 
 echo "Queue Up services started."
-echo "Backend health: http://localhost:8080/health"
 
+#check backend health
+echo "Backend health:\n"
+curl -i http://localhost:8080/health
+
+#check submission sanitizer health
+echo "Submission sanitizer webhook:\n"
+curl -i http://localhost:8090/v1/submissions/health

@@ -250,6 +250,35 @@ func (db *DB) RefreshTodayRecommendations(ctx context.Context, userID string) (t
 		loc = time.UTC
 	}
 	today := startOfDayInLocation(time.Now(), loc)
+	existingAssignments, err := queryAssignments(ctx, tx, userID, today)
+	if err != nil {
+		return time.Time{}, nil, err
+	}
+	completedPositions := make(map[int16]struct{}, len(existingAssignments))
+	for _, a := range existingAssignments {
+		rows, qErr := tx.Query(ctx, `
+			SELECT status
+			FROM daily_assignments
+			WHERE user_id = $1 AND assignment_date = $2 AND position = $3
+		`, userID, today, a.Position)
+		if qErr != nil {
+			return time.Time{}, nil, fmt.Errorf("query assignment status: %w", qErr)
+		}
+		for rows.Next() {
+			var status string
+			if scanErr := rows.Scan(&status); scanErr != nil {
+				rows.Close()
+				return time.Time{}, nil, fmt.Errorf("scan assignment status: %w", scanErr)
+			}
+			if strings.EqualFold(strings.TrimSpace(status), "COMPLETED") {
+				completedPositions[a.Position] = struct{}{}
+			}
+		}
+		rows.Close()
+		if rows.Err() != nil {
+			return time.Time{}, nil, fmt.Errorf("iterate assignment status rows: %w", rows.Err())
+		}
+	}
 
 	if _, err := tx.Exec(ctx, `
 		DELETE FROM daily_assignments
@@ -269,11 +298,24 @@ func (db *DB) RefreshTodayRecommendations(ctx context.Context, userID string) (t
 		return time.Time{}, nil, err
 	}
 
+	positionToFill := make([]int16, 0, dailyLimit)
+	for i := 1; i <= dailyLimit; i++ {
+		pos := int16(i)
+		if _, taken := completedPositions[pos]; taken {
+			continue
+		}
+		positionToFill = append(positionToFill, pos)
+	}
+
 	for i, c := range candidates {
-		position := int16(i + 1)
+		if i >= len(positionToFill) {
+			break
+		}
+		position := positionToFill[i]
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO daily_assignments (user_id, problem_id, assignment_date, position, status)
 			VALUES ($1, $2, $3, $4, 'ASSIGNED')
+			ON CONFLICT (user_id, assignment_date, position) DO NOTHING
 		`, userID, c.ProblemID, today, position); err != nil {
 			return time.Time{}, nil, fmt.Errorf("insert refreshed assignment: %w", err)
 		}
