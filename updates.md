@@ -32,3 +32,6 @@
 - lessened strictness on recommendations (still not perfect)
 - added windows exe details 
 - manually added nc150 + some extra problems to the pg db
+
+# 04/02/2026
+- added killswitch when the user presses "quit" on system tray. all instances of queue up agents are exited

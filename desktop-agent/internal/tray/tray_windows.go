@@ -36,6 +36,7 @@ func Run(actions Actions) {
 				case <-dashboardItem.ClickedCh:
 					actions.OpenDashboard()
 				case <-quitItem.ClickedCh:
+					terminateQueueUpAgents()
 					actions.Stop()
 					systray.Quit()
 					return
