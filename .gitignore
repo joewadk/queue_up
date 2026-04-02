@@ -7,3 +7,4 @@ submission-sanitizer-java/target/
 submission-sanitizer-java/target/
 .venv
 *.csv
+update_version.go
