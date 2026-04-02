@@ -164,6 +164,15 @@ flowchart TD
     class H,I,J enforcement;
 ```
 
+## Development Notes
+
+- `submission-sanitizer-java/src/main/resources/application.properties` now ships in source control so the sanitizer service has an explicit default config instead of hiding it under ignore globs.
+- `submission-sanitizer-java/target/` is ignored so Maven class artifacts stay out of git while the source config and code stay visible.
+- The desktop agent keeps `config-example.json` versioned while each contributor can keep a local `desktop-agent/config.json` for machine-specific overrides.
+- The Windows build script now runs `goversioninfo` (when installed) to bake the product metadata defined in `desktop-agent/cmd/queue-up-agent/versioninfo.json` into the executable; install it via `go install github.com/josephspurrier/goversioninfo/cmd/goversioninfo@latest` before running `desktop-agent/build-windows.ps1`.
+- Infra side includes the `infra/aws/nginx` configs; we’ll drop a dedicated Nginx block once the SwiftUI client is in place.
+- Swift UI mobile screens are coming next, so keep an eye on the `mobile/` branch layout once it gets merged.
+
 ## Docker Setup (Postgres + Backend)
 
 ### Prerequisites

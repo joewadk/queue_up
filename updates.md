@@ -27,4 +27,8 @@
 - allow users to submit the lc submission links to the app to mark their project as done (currently wip)
 - added java webhook (sanitize and verify lc problems) with go backup 
 - dockerized java webhook (submission sanitizer)
+- fixing recommmendations for category recommended problems, if neetcode is not sufficient for problems we use the api to seed new problems
+- added problem concepts table
+- lessened strictness on recommendations (still not perfect)
+- added windows exe details 
 

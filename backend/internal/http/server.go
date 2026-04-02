@@ -305,7 +305,23 @@ func New(db *store.DB) http.Handler {
 				writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
 				return
 			}
-			writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "user_id": userID, "concept_codes": req.ConceptCodes})
+			date, recs, err := db.RefreshTodayRecommendations(ctx, userID)
+			if err != nil {
+				if errors.Is(err, store.ErrUserNotFound) {
+					writeJSON(w, http.StatusNotFound, map[string]any{"error": "user not found"})
+					return
+				}
+				writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{
+				"status":               "ok",
+				"user_id":              userID,
+				"concept_codes":        req.ConceptCodes,
+				"assignment_date":      date.Format("2006-01-02"),
+				"recommendation_count": len(recs),
+				"recommendations":      recs,
+			})
 			return
 
 		case "queue":
