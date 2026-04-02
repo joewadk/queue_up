@@ -232,6 +232,12 @@ func (db *DB) SetUserConceptPreferences(ctx context.Context, userID string, conc
 }
 
 func (db *DB) RefreshTodayRecommendations(ctx context.Context, userID string) (time.Time, []Recommendation, error) {
+	conceptCodes, err := db.userConceptCodes(ctx, userID)
+	if err != nil {
+		return time.Time{}, nil, err
+	}
+	tagFilters := tagsForConceptCodes(conceptCodes)
+
 	tx, err := db.pool.Begin(ctx)
 	if err != nil {
 		return time.Time{}, nil, fmt.Errorf("begin tx: %w", err)
@@ -303,7 +309,7 @@ func (db *DB) RefreshTodayRecommendations(ctx context.Context, userID string) (t
 		return today, assignments, nil
 	}
 
-	candidates, err := queryQueueCandidates(ctx, tx, userID, len(positionToFill))
+	candidates, err := queryQueueCandidates(ctx, tx, userID, len(positionToFill), tagFilters)
 	if err != nil {
 		return time.Time{}, nil, err
 	}

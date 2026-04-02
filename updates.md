@@ -35,3 +35,4 @@
 
 # 04/02/2026
 - added killswitch when the user presses "quit" on system tray. all instances of queue up agents are exited
+- finally the swapping categories successfully updates the problem queue correctly

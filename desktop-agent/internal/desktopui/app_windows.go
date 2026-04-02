@@ -30,6 +30,54 @@ const (
 	prefKeyLastConceptCode      = "last_concept_code"
 )
 
+var supportedConceptCodes = []string{
+	"ARRAY",
+	"TWO_POINTERS",
+	"STACK",
+	"BINARY_SEARCH",
+	"SLIDING_WINDOW",
+	"LINKED_LIST",
+	"TREE",
+	"TRIE",
+	"BACKTRACKING",
+	"HEAP",
+	"GRAPH",
+	"DP_1D",
+	"DP_2D",
+	"INTERVALS",
+	"GREEDY",
+	"BIT_MANIPULATION",
+	"DSU",
+	"QUEUE",
+	"MATH_GEOMETRY",
+}
+
+var supportedConceptSet = func() map[string]struct{} {
+	m := make(map[string]struct{}, len(supportedConceptCodes))
+	for _, code := range supportedConceptCodes {
+		m[strings.ToUpper(strings.TrimSpace(code))] = struct{}{}
+	}
+	return m
+}()
+
+func filterSupportedConcepts(concepts []client.Concept) []client.Concept {
+	selected := make(map[string]client.Concept, len(concepts))
+	for _, concept := range concepts {
+		code := strings.TrimSpace(strings.ToUpper(concept.Code))
+		if _, ok := supportedConceptSet[code]; !ok {
+			continue
+		}
+		selected[code] = concept
+	}
+	out := make([]client.Concept, 0, len(selected))
+	for _, code := range supportedConceptCodes {
+		if concept, ok := selected[code]; ok {
+			out = append(out, concept)
+		}
+	}
+	return out
+}
+
 func Run(cfg config.Config) error {
 	if strings.TrimSpace(cfg.BackendBaseURL) == "" {
 		return fmt.Errorf("backend_base_url is required")
@@ -339,7 +387,7 @@ func Run(cfg config.Config) error {
 			setStatus("Concept load failed: " + err.Error())
 			return
 		}
-		state.concepts = out.Concepts
+		state.concepts = filterSupportedConcepts(out.Concepts)
 		selectedByCode := make(map[string]struct{}, len(selected))
 		for _, code := range selected {
 			selectedByCode[strings.ToUpper(strings.TrimSpace(code))] = struct{}{}

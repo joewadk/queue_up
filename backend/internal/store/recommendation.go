@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -12,6 +14,58 @@ import (
 const dailyLimit = 3
 
 var ErrUserNotFound = errors.New("user not found")
+
+var conceptTagMap = map[string][]string{
+	"ARRAY":               {"ARRAY_HASHING"},
+	"TWO_POINTERS":        {"TWO_POINTERS"},
+	"STACK":               {"STACK"},
+	"BINARY_SEARCH":       {"BINARY_SEARCH"},
+	"SLIDING_WINDOW":      {"SLIDING_WINDOW"},
+	"LINKED_LIST":         {"LINKED_LIST"},
+	"TREE":                {"TREE"},
+	"TRIE":                {"TRIE"},
+	"BACKTRACKING":        {"BACKTRACKING"},
+	"HEAP":                {"HEAP"},
+	"GRAPH":               {"GRAPH"},
+	"DP_1D":               {"DP_1D"},
+	"DP_2D":               {"DP_2D"},
+	"INTERVALS":           {"INTERVALS"},
+	"GREEDY":              {"GREEDY"},
+	"BIT_MANIPULATION":    {"BIT_MANIPULATION"},
+	"DSU":                 {"DSU (Disjoint Set Union)"},
+	"QUEUE":               {"QUEUE"},
+	"MATH_GEOMETRY":       {"MATH&GEOMETRY"},
+}
+
+func tagsForConceptCodes(codes []string) []string {
+	r := make(map[string]struct{}, len(codes))
+	for _, raw := range codes {
+		code := strings.TrimSpace(strings.ToUpper(raw))
+		if code == "" {
+			continue
+		}
+		tags := conceptTagMap[code]
+		if len(tags) == 0 {
+			tags = []string{code}
+		}
+		for _, tag := range tags {
+			tag = strings.TrimSpace(tag)
+			if tag == "" {
+				continue
+			}
+			r[tag] = struct{}{}
+		}
+	}
+	if len(r) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(r))
+	for tag := range r {
+		out = append(out, tag)
+	}
+	sort.Strings(out)
+	return out
+}
 
 type Recommendation struct {
 	Position   int16  `json:"position"`
@@ -24,6 +78,12 @@ type Recommendation struct {
 
 // get or create today's recommendations for a user. if the user already has assignments for today, return those.
 func (db *DB) GetOrCreateTodayRecommendations(ctx context.Context, userID string) (time.Time, []Recommendation, error) {
+	conceptCodes, err := db.userConceptCodes(ctx, userID)
+	if err != nil {
+		return time.Time{}, nil, err
+	}
+	tagFilters := tagsForConceptCodes(conceptCodes)
+
 	tx, err := db.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return time.Time{}, nil, fmt.Errorf("begin tx: %w", err)
@@ -55,7 +115,7 @@ func (db *DB) GetOrCreateTodayRecommendations(ctx context.Context, userID string
 		return today, existing, nil
 	}
 
-	candidates, err := queryQueueCandidates(ctx, tx, userID, dailyLimit)
+	candidates, err := queryQueueCandidates(ctx, tx, userID, dailyLimit, tagFilters)
 	if err != nil {
 		return time.Time{}, nil, err
 	}
@@ -124,9 +184,13 @@ func queryAssignments(ctx context.Context, tx pgx.Tx, userID string, date time.T
 	return out, nil
 }
 
-func queryQueueCandidates(ctx context.Context, tx pgx.Tx, userID string, limit int) ([]Recommendation, error) {
+func queryQueueCandidates(ctx context.Context, tx pgx.Tx, userID string, limit int, tagFilters []string) ([]Recommendation, error) {
 	if limit <= 0 {
 		return nil, nil
+	}
+	var tagArg interface{}
+	if len(tagFilters) > 0 {
+		tagArg = tagFilters
 	}
 	rows, err := tx.Query(ctx, `
         SELECT
@@ -145,6 +209,14 @@ func queryQueueCandidates(ctx context.Context, tx pgx.Tx, userID string, limit i
             WHERE pc.user_id = $1
               AND pc.problem_id = p.id
           )
+          AND (
+            $2::text[] IS NULL
+            OR EXISTS (
+              SELECT 1
+              FROM unnest($2::text[]) AS preferred_tag
+              WHERE preferred_tag = ANY(p.tags)
+            )
+          )
         ORDER BY
             COALESCE(p.queue_rank, 1000),
             CASE p.difficulty
@@ -153,8 +225,8 @@ func queryQueueCandidates(ctx context.Context, tx pgx.Tx, userID string, limit i
                 ELSE 3
             END,
             p.id
-        LIMIT $2
-    `, userID, limit)
+        LIMIT $3
+    `, userID, tagArg, limit)
 	if err != nil {
 		return nil, fmt.Errorf("query queue candidates: %w", err)
 	}
