@@ -162,7 +162,7 @@ func New(db *store.DB) http.Handler {
 			"daily_cap":             3,
 			"recommendation_count":  len(recs),
 			"recommendations":       recs,
-			"recommendation_source": "easy_first_by_concept",
+			"recommendation_source": "nc150_queue",
 		})
 	})
 

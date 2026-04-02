@@ -78,13 +78,6 @@ func (db *DB) RecordCompletion(ctx context.Context, in CompletionInput) error {
 		return fmt.Errorf("update assignment status: %w", err)
 	}
 
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO problem_attempts (user_id, problem_id, assignment_date, quality, attempted_at)
-		VALUES ($1, $2, $3, 5, $4)
-	`, in.UserID, in.ProblemID, assignmentDate, in.CompletedAt); err != nil {
-		return fmt.Errorf("insert attempt snapshot: %w", err)
-	}
-
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit tx: %w", err)
 	}

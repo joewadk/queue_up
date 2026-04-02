@@ -5,3 +5,5 @@ pkg
 .vscode
 submission-sanitizer-java/target/
 submission-sanitizer-java/target/
+.venv
+*.csv

@@ -31,4 +31,4 @@
 - added problem concepts table
 - lessened strictness on recommendations (still not perfect)
 - added windows exe details 
-
+- manually added nc150 + some extra problems to the pg db
