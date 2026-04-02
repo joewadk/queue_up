@@ -1,6 +1,6 @@
 # Queue Up
 
-Queue Up is a two-pronged system to improve LeetCode learning retention and enforce productive behavior across mobile and desktop.
+Queue Up pairs spaced-repetition coaching with enforced focus, but the current MVP is centered on the desktop agent (mobile support remains on the roadmap).
 
 ## High-Level Purpose
 
@@ -10,6 +10,7 @@ Queue Up is a two-pronged system to improve LeetCode learning retention and enfo
 
 ## Product Constraints (Current MVP)
 
+- Desktop enforcement is the shipping experience: the Go-based agent opens a LeetCode tab whenever a configured game is detected, and the bundled Fyne UI lets you bootstrap via LeetCode credentials, pick concepts, and mark problems done.
 - LeetCode metadata source: [noworneverev/leetcode-api](https://github.com/noworneverev/leetcode-api?tab=readme-ov-file) (queried by backend adapter).
 - First login flow: user selects a starting concept cluster (example: Graphs, DP, Queue).
 - Initial recommendation policy: prefer Easy problems first.
@@ -18,12 +19,22 @@ Queue Up is a two-pronged system to improve LeetCode learning retention and enfo
 - Mobile app behavior: push notifications for daily queue + pending completions.
 - Desktop behavior: when game usage is detected, open/switch to a new LeetCode tab in the system default browser, pointing to the current daily problem.
 
+## Schema Snapshot
+
+- `users` store the Clerk-linked identity, timezone, and creation timestamp that anchor every assignment.
+- `concepts` captures both topical buckets (Arrays, Graphs) and technique-focused entries (DFS, Sliding Window, Prefix Sums, etc.), and the `type` enum keeps topics and techniques distinct.
+- `user_concept_preferences` tracks each concept the user explicitly chose so the scheduler can bias today's queue toward those buckets.
+- `problems` is the seeded catalog. Each row holds the `slug`, difficulty, canonical `url`, `source_set` tag (currently `NEETCODE_150` plus the handful of extra DSU/Queue/technique entries we added), `queue_rank`, and raw LeetCode `tags`. These fields make it easy to extend the catalog with specialized sets like prefix sums or segment trees before a broader LeetCode sync.
+- `problem_concepts` links problems to one or more concepts or techniques, enabling cross-topic assignments.
+- `daily_assignments` guarantees each user gets up to three problems per day, enforces unique (user, date, position), and records status (`ASSIGNED`, `COMPLETED`, `SKIPPED`) for the spaced repetition loop.
+- The problem catalog already leans on the NeetCode 150 list plus our manual additions, but upcoming seeds will add more specialized problems (e.g., prefix sums, cumulative sums, and other focused techniques) and grow the database over time.
+
 ## Core Architecture
 
 ```mermaid
 flowchart LR
     U[User] --> M[Mobile App<br/>Swift]
-    U --> D[Desktop Agent<br/>Go]
+    U --> D[Desktop Agent<br/>Go + Fyne UI]
 
     M <--> |WebSocket| B[Backend API + Scheduler<br/>Go]
     D <--> |REST/gRPC| B
@@ -172,6 +183,7 @@ flowchart TD
 - The Windows build script now runs `goversioninfo` (when installed) to bake the product metadata defined in `desktop-agent/cmd/queue-up-agent/versioninfo.json` into the executable; install it via `go install github.com/josephspurrier/goversioninfo/cmd/goversioninfo@latest` before running `desktop-agent/build-windows.ps1`.
 - Infra side includes the `infra/aws/nginx` configs; we’ll drop a dedicated Nginx block once the SwiftUI client is in place.
 - Swift UI mobile screens are coming next, so keep an eye on the `mobile/` branch layout once it gets merged.
+- Problem catalog is already seeded with NeetCode 150 plus DSU/Queue extras and is being expanded with specialized topics (prefix sums, cumulative sums, etc.) so future assignments can drill into narrower skill slices.
 
 ## Docker Setup (Postgres + Backend)
 

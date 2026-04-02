@@ -2,6 +2,8 @@
 
 Windows desktop agent that detects configured game executables and opens a LeetCode URL in the default browser.
 
+The agent is implemented in Go and the native UI (tray + windows) is powered by the Fyne toolkit so the enforcement + onboarding experience stays in a single binary.
+
 ## What This Base Version Does
 
 - Polls running processes via `tasklist` at a configurable interval.
@@ -100,3 +102,4 @@ If `rsrc` is installed, this script generates `cmd/queue-up-agent/queue_up.syso`
 - Send enforcement events to backend API and persist to Postgres.
 - Upgrade process detection from “running process” to “foreground active window” if needed.
 - Add executable policy hot-reload and user-editable allow/block lists.
+- Align the tray/GUI flows with the expanded problem schema (NeetCode 150 + the future specialized sets such as prefix sums, cumulative sums, etc.) so new catalog items surface in the desktop experience.

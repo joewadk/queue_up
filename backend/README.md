@@ -1,6 +1,6 @@
 # Queue Up Backend (Postgres Foundation)
 
-This is the initial backend scaffold with local Postgres as the source of truth.
+This backend scaffold now powers the desktop agent MVP (mobile-focused clients are still next up) with local Postgres as the source of truth.
 
 ## Run Postgres
 
@@ -108,6 +108,17 @@ Daily queue with completion checkbox state:
 ```bash
 curl "http://localhost:8080/v1/daily-queue?user_id=00000000-0000-0000-0000-000000000001"
 ```
+
+## Schema & Problem Catalog
+
+- `users` record the Clerk identity and timezone that every assignment references.
+- `concepts` stores both topic and technique buckets, so the backend can label Arrays, Graphs, Queue, DFS, prefix sums, and the rest.
+- `user_concept_preferences` captures what concept clusters the user selected so scheduler decisions can favor those buckets.
+- `problems` is the seeded catalog. Each row keeps the `slug`, difficulty, canonical `url`, `source_set` tag (`NEETCODE_150` plus the DSU/Queue extras), deterministic `queue_rank`, and raw LeetCode `tags`, making it easy to grow the catalog with specialized sets (prefix sums, cumulative sums, segment trees) over time.
+- `problem_concepts` maps problems to one or more concepts/techniques so assignments can cross-link multiple learning goals.
+- `daily_assignments` enforces the “three problems/day” cap, records `position`, and tracks status transitions (`ASSIGNED`, `COMPLETED`, `SKIPPED`) for spaced repetition analytics.
+
+The catalog currently leans on NeetCode 150 plus manual additions and is being expanded with more specialized problems (prefix sums, cumulative sums, etc.) as the database is curated.
 
 ## End-to-End Local Test Commands
 
