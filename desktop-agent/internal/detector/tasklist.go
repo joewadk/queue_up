@@ -1,3 +1,5 @@
+//go:build windows
+
 package detector
 
 import (
@@ -10,7 +12,7 @@ import (
 	"strings"
 )
 
-//list the currently running executables on the system. this is used to check if the user has a browser open, and if so, which one, so we can open the problem in that browser. this is windows specific for now, but we can add support for other platforms later if needed.
+// ListRunningExecutables on Windows via tasklist.
 func ListRunningExecutables() (map[string]struct{}, error) {
 	cmd := exec.Command("tasklist", "/FO", "CSV", "/NH")
 	configureBackgroundProcess(cmd)
