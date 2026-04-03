@@ -1,5 +1,5 @@
 {
-  "backend_base_url": "http://localhost:8080",
+  "backend_base_url": "https://queue-up-backend.duckdns.org",
   "cooldown_seconds": 60,
   "dry_run": false,
   "enable_tray": true,
@@ -9,7 +9,7 @@
   "open_gui_on_start": true,
   "poll_interval_seconds": 5,
   "request_timeout_seconds": 5,
-  "user_id": "7b95d83c-2775-440f-8ced-4f0bc32ab236",
+  "user_id": "cccf5074-606a-4934-9e5c-40a1cf68924e",
   "watched_executables": [
     "Marvel-Win64-Shipping.exe",
     "masterduel.exe"

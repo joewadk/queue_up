@@ -185,6 +185,12 @@ flowchart TD
 - Swift UI mobile screens are coming next, so keep an eye on the `mobile/` branch layout once it gets merged.
 - Problem catalog is already seeded with NeetCode 150 plus DSU/Queue extras and is being expanded with specialized topics (prefix sums, cumulative sums, etc.) so future assignments can drill into narrower skill slices.
 
+## Remote backend endpoint
+
+- The production API now lives at `https://queue-up-backend.duckdns.org`. Local desktop agents and any other clients should point their `backend_base_url`/API base to that domain instead of `localhost:8080` when you want to hit the deployed Postgres-backed dataset.
+- Certbot-protected HTTPS is proxying to the Dockerized Go backend via the host-level Nginx proxy, so hitting `/health` or any `v1/...` endpoint on that hostname behaves the same as calling the local container ports.
+- Rebuild or copy `desktop-agent/config.json` from `config.example.json` if you have a custom config; make sure `backend_base_url` uses the DuckDNS URL before starting the agent outside your Docker host.
+
 ## Docker Setup (Postgres + Backend)
 
 ### Prerequisites

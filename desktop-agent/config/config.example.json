@@ -1,7 +1,7 @@
 {
   "poll_interval_seconds": 5,
   "cooldown_seconds": 60,
-  "backend_base_url": "http://localhost:8080",
+  "backend_base_url": "https://queue-up-backend.duckdns.org",
   "user_id": "00000000-0000-0000-0000-000000000001",
   "request_timeout_seconds": 5,
   "leetcode_problem_url": "https://leetcode.com/problemset/",
