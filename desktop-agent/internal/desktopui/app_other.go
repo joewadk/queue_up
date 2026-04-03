@@ -8,6 +8,8 @@ import (
 	"queue_up/desktop-agent/internal/config"
 )
 
-func Run(cfg config.Config) error {
+func Run(cfg config.Config, configPath string) error {
+	_ = cfg
+	_ = configPath
 	return fmt.Errorf("native desktop ui is currently supported on Windows only")
 }

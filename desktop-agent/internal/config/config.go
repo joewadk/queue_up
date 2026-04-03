@@ -101,3 +101,55 @@ func Load(path string) (Config, error) {
 		OpenGUIOnStart:     raw.OpenGUIOnStart,
 	}, nil
 }
+
+func UpdateUserID(path, userID string) error {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return fmt.Errorf("config path is required")
+	}
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return fmt.Errorf("user id is required")
+	}
+
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read %s: %w", path, err)
+	}
+
+	var doc map[string]any
+	if err := json.Unmarshal(b, &doc); err != nil {
+		return fmt.Errorf("parse %s: %w", path, err)
+	}
+	if existing, ok := doc["user_id"].(string); ok && strings.TrimSpace(existing) == userID {
+		return nil
+	}
+
+	doc["user_id"] = userID
+	encoded, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode %s: %w", path, err)
+	}
+	encoded = append(encoded, '\n')
+
+	dir := filepath.Dir(path)
+	temp, err := os.CreateTemp(dir, "queue-up-config-*.json")
+	if err != nil {
+		return fmt.Errorf("create temp config in %s: %w", dir, err)
+	}
+	tempPath := temp.Name()
+	if _, err := temp.Write(encoded); err != nil {
+		_ = temp.Close()
+		_ = os.Remove(tempPath)
+		return fmt.Errorf("write temp config: %w", err)
+	}
+	if err := temp.Close(); err != nil {
+		_ = os.Remove(tempPath)
+		return fmt.Errorf("close temp config: %w", err)
+	}
+	if err := os.Rename(tempPath, path); err != nil {
+		_ = os.Remove(tempPath)
+		return fmt.Errorf("replace %s: %w", path, err)
+	}
+	return nil
+}

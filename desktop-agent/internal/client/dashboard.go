@@ -48,7 +48,14 @@ type HistoryResponse struct {
 }
 
 type DailyQueueResponse struct {
-	Queue []DailyQueueItem `json:"queue"`
+	Count          int              `json:"count"`
+	CompletedCount int              `json:"completed_count"`
+	Queue          []DailyQueueItem `json:"queue"`
+}
+
+type ProblemQueueResult struct {
+	Recommendations []Recommendation
+	Source          string
 }
 
 type DailyQueueItem struct {
@@ -167,6 +174,62 @@ func RefreshQueue(ctx context.Context, httpClient *http.Client, baseURL, userID 
 		return RefreshQueueResponse{}, err
 	}
 	return out, nil
+}
+
+func FetchProblemQueue(ctx context.Context, httpClient *http.Client, baseURL, userID, selectedConceptCode string) (ProblemQueueResult, error) {
+	refreshOut, refreshErr := RefreshQueue(ctx, httpClient, baseURL, userID)
+	if refreshErr == nil && len(refreshOut.Recommendations) > 0 {
+		return ProblemQueueResult{
+			Recommendations: refreshOut.Recommendations,
+			Source:          "refresh endpoint",
+		}, nil
+	}
+	if refreshErr == nil && len(refreshOut.Recommendations) == 0 && strings.TrimSpace(selectedConceptCode) != "" {
+		return ProblemQueueResult{
+			Recommendations: []Recommendation{},
+			Source:          "selected concept empty",
+		}, nil
+	}
+
+	dailyQueueOut, dailyQueueErr := FetchDailyQueue(ctx, httpClient, baseURL, userID)
+	if dailyQueueErr == nil && len(dailyQueueOut.Queue) > 0 {
+		dailyRecs := make([]Recommendation, 0, len(dailyQueueOut.Queue))
+		for _, q := range dailyQueueOut.Queue {
+			dailyRecs = append(dailyRecs, Recommendation{
+				ProblemID:  q.ProblemID,
+				Slug:       q.Slug,
+				Title:      q.Title,
+				URL:        q.URL,
+				Difficulty: q.Difficulty,
+			})
+		}
+		return ProblemQueueResult{
+			Recommendations: dailyRecs,
+			Source:          "daily queue fallback",
+		}, nil
+	}
+
+	todayFallback, todayFallbackErr := FetchTodayRecommendations(ctx, httpClient, baseURL, userID)
+	if todayFallbackErr == nil && len(todayFallback) > 0 {
+		return ProblemQueueResult{
+			Recommendations: todayFallback,
+			Source:          "today recommendation fallback",
+		}, nil
+	}
+
+	if refreshErr != nil {
+		return ProblemQueueResult{}, fmt.Errorf("queue refresh failed: %w", refreshErr)
+	}
+	if dailyQueueErr != nil {
+		return ProblemQueueResult{}, fmt.Errorf("queue daily fallback failed: %w", dailyQueueErr)
+	}
+	if todayFallbackErr != nil {
+		return ProblemQueueResult{}, fmt.Errorf("queue fallback failed: %w", todayFallbackErr)
+	}
+	return ProblemQueueResult{
+		Recommendations: []Recommendation{},
+		Source:          "empty",
+	}, nil
 }
 
 func FetchDailyQueue(ctx context.Context, httpClient *http.Client, baseURL, userID string) (DailyQueueResponse, error) {

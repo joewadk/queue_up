@@ -1,17 +1,17 @@
 {
-  "poll_interval_seconds": 5,
-  "cooldown_seconds": 60,
   "backend_base_url": "http://localhost:8080",
-  "user_id": "00000000-0000-0000-0000-000000000001",
-  "request_timeout_seconds": 5,
+  "cooldown_seconds": 60,
+  "dry_run": false,
+  "enable_tray": true,
   "leetcode_problem_url": "https://leetcode.com/problemset/",
+  "log_file_path": "logs/enforcement.jsonl",
+  "log_polls": true,
+  "open_gui_on_start": true,
+  "poll_interval_seconds": 5,
+  "request_timeout_seconds": 5,
+  "user_id": "7b95d83c-2775-440f-8ced-4f0bc32ab236",
   "watched_executables": [
     "Marvel-Win64-Shipping.exe",
     "masterduel.exe"
-  ], 
-  "log_file_path": "logs/enforcement.jsonl",
-  "dry_run": false,
-  "log_polls": true,
-  "enable_tray": true,
-  "open_gui_on_start": true
+  ]
 }

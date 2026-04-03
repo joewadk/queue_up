@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"image/color"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -78,7 +79,7 @@ func filterSupportedConcepts(concepts []client.Concept) []client.Concept {
 	return out
 }
 
-func Run(cfg config.Config) error {
+func Run(cfg config.Config, configPath string) error {
 	if strings.TrimSpace(cfg.BackendBaseURL) == "" {
 		return fmt.Errorf("backend_base_url is required")
 	}
@@ -212,6 +213,14 @@ func Run(cfg config.Config) error {
 	setStatus := func(msg string) {
 		statusLabel.SetText(msg)
 	}
+	syncActiveUserID := func() {
+		if strings.TrimSpace(configPath) == "" || strings.TrimSpace(state.userID) == "" {
+			return
+		}
+		if err := config.UpdateUserID(configPath, state.userID); err != nil {
+			log.Printf("sync user_id to config failed: %v", err)
+		}
+	}
 
 	var renderConceptOptions func()
 	renderConceptOptions = func() {
@@ -328,55 +337,26 @@ func Run(cfg config.Config) error {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		out, err := client.RefreshQueue(ctx, state.httpClient, state.cfg.BackendBaseURL, state.userID)
-		if err == nil && len(out.Recommendations) > 0 {
-			applyQueue(out.Recommendations, "refresh endpoint")
-			return
-		}
-		if err == nil && len(out.Recommendations) == 0 && strings.TrimSpace(state.selectedConceptCode) != "" {
-			queueSelect.SetOptions([]string{})
-			state.selectedQueueOption = ""
-			setStatus("No queue problems available for the selected category.")
-			return
-		}
-
-		dailyQueueOut, dailyQueueErr := client.FetchDailyQueue(ctx, state.httpClient, state.cfg.BackendBaseURL, state.userID)
-		if dailyQueueErr == nil && len(dailyQueueOut.Queue) > 0 {
-			dailyRecs := make([]client.Recommendation, 0, len(dailyQueueOut.Queue))
-			for _, q := range dailyQueueOut.Queue {
-				dailyRecs = append(dailyRecs, client.Recommendation{
-					ProblemID:  q.ProblemID,
-					Slug:       q.Slug,
-					Title:      q.Title,
-					URL:        q.URL,
-					Difficulty: q.Difficulty,
-				})
-			}
-			applyQueue(dailyRecs, "daily queue fallback")
-			return
-		}
-
-		fallback, fallbackErr := client.FetchTodayRecommendations(ctx, state.httpClient, state.cfg.BackendBaseURL, state.userID)
-		if fallbackErr == nil && len(fallback) > 0 {
-			applyQueue(fallback, "today recommendation fallback")
-			return
-		}
-
-		queueSelect.SetOptions([]string{})
-		state.selectedQueueOption = ""
+		out, err := client.FetchProblemQueue(
+			ctx,
+			state.httpClient,
+			state.cfg.BackendBaseURL,
+			state.userID,
+			state.selectedConceptCode,
+		)
 		if err != nil {
 			setStatus("Queue refresh failed: " + err.Error())
 			return
 		}
-		if dailyQueueErr != nil {
-			setStatus("Queue daily fallback failed: " + dailyQueueErr.Error())
+		if out.Source == "selected concept empty" {
+			setStatus("No queue problems available for the selected category.")
 			return
 		}
-		if fallbackErr != nil {
-			setStatus("Queue fallback failed: " + fallbackErr.Error())
+		if len(out.Recommendations) == 0 {
+			setStatus("Queue refreshed: 0 problems")
 			return
 		}
-		setStatus("Queue refreshed: 0 problems")
+		applyQueue(out.Recommendations, out.Source)
 	}
 
 	loadConcepts := func(selected []string) {
@@ -440,6 +420,7 @@ func Run(cfg config.Config) error {
 		}
 		prefs.SetString(prefKeyLastLeetCodeUsername, state.leetcodeUsername)
 		prefs.SetString(prefKeyLastUserID, state.userID)
+		syncActiveUserID()
 		vStatus := out.VerificationStatus
 		if vStatus == "" {
 			vStatus = "skipped"
@@ -641,6 +622,7 @@ func Run(cfg config.Config) error {
 	)
 	w.SetContent(root)
 	if state.userID != "" {
+		syncActiveUserID()
 		initialSelectedCodes := []string{}
 		if rememberedConceptCode != "" {
 			initialSelectedCodes = append(initialSelectedCodes, rememberedConceptCode)
@@ -657,6 +639,7 @@ func Run(cfg config.Config) error {
 				state.userID = strings.TrimSpace(lookup.Profile.UserID)
 				if state.userID != "" {
 					prefs.SetString(prefKeyLastUserID, state.userID)
+					syncActiveUserID()
 				}
 				if len(lookup.Profile.ConceptCodes) > 0 {
 					initialSelectedCodes = lookup.Profile.ConceptCodes

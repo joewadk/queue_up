@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -54,7 +55,7 @@ func main() {
 		log.Fatalf("load config: %v", err)
 	}
 	if *desktopMode {
-		if err := desktopui.Run(cfg); err != nil {
+		if err := desktopui.Run(cfg, *configPath); err != nil {
 			log.Fatalf("desktop ui failed: %v", err)
 		}
 		return
@@ -112,11 +113,15 @@ func runOnce(cfg config.Config, logger *eventlogger.JSONL, lastTriggered map[str
 			continue
 		}
 
-		problemURL, source, slug, fetchErr := resolveProblemURL(cfg, httpClient)
+		problemURL, source, slug, shouldOpen, fetchErr := resolveProblemURL(cfg, httpClient)
+		action := "OPEN_LEETCODE_PROBLEM"
+		if !shouldOpen {
+			action = "OPEN_LEETCODE_PROBLEM_SKIPPED"
+		}
 		event := eventlogger.EnforcementEvent{
 			TimestampUTC:           now,
 			Executable:             exe,
-			Action:                 "OPEN_LEETCODE_PROBLEM",
+			Action:                 action,
 			ProblemURL:             problemURL,
 			RecommendationSource:   source,
 			RecommendedProblemSlug: slug,
@@ -126,16 +131,28 @@ func runOnce(cfg config.Config, logger *eventlogger.JSONL, lastTriggered map[str
 			event.Error = fetchErr.Error()
 		}
 
-		if !cfg.DryRun {
-			if err := enforcer.OpenInDefaultBrowser(problemURL); err != nil {
-				event.Action = "OPEN_LEETCODE_PROBLEM_FAILED"
-				if event.Error == "" {
-					event.Error = err.Error()
+		if shouldOpen {
+			if cfg.DryRun {
+				log.Printf("detected %s (dry-run): would open %s source=%s", exe, problemURL, source)
+			} else {
+				if err := enforcer.OpenInDefaultBrowser(problemURL); err != nil {
+					event.Action = "OPEN_LEETCODE_PROBLEM_FAILED"
+					if event.Error == "" {
+						event.Error = err.Error()
+					} else {
+						event.Error = event.Error + "; " + err.Error()
+					}
+					log.Printf("open browser for %s: %v", exe, err)
 				} else {
-					event.Error = event.Error + "; " + err.Error()
+					log.Printf("detected %s: opened %s source=%s", exe, problemURL, source)
 				}
-				log.Printf("open browser for %s: %v", exe, err)
 			}
+		} else {
+			reason := "skipped opening problem"
+			if fetchErr != nil {
+				reason = fetchErr.Error()
+			}
+			log.Printf("detected %s: %s", exe, reason)
 		}
 
 		if err := logger.Write(event); err != nil {
@@ -143,11 +160,6 @@ func runOnce(cfg config.Config, logger *eventlogger.JSONL, lastTriggered map[str
 		}
 
 		lastTriggered[exe] = now
-		if cfg.DryRun {
-			log.Printf("detected %s (dry-run): would open %s source=%s", exe, problemURL, source)
-		} else {
-			log.Printf("detected %s: opened %s source=%s", exe, problemURL, source)
-		}
 	}
 
 	if cfg.LogPolls {
@@ -159,20 +171,49 @@ func runOnce(cfg config.Config, logger *eventlogger.JSONL, lastTriggered map[str
 	}
 }
 
-func resolveProblemURL(cfg config.Config, httpClient *http.Client) (problemURL, source, slug string, fetchErr error) {
+var errProblemsSubmittedToday = errors.New("user already submitted a problem today")
+
+func resolveProblemURL(cfg config.Config, httpClient *http.Client) (problemURL, source, slug string, shouldOpen bool, fetchErr error) {
 	fallback := cfg.LeetCodeProblemURL
 	if strings.TrimSpace(cfg.BackendBaseURL) == "" || strings.TrimSpace(cfg.UserID) == "" {
-		return fallback, "fallback_static", "", nil
+		return fallback, "fallback_static", "", true, nil
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), cfg.RequestTimeout)
 	defer cancel()
 
-	rec, err := client.FetchTodayRecommendation(ctx, httpClient, cfg.BackendBaseURL, cfg.UserID)
-	if err != nil {
-		return fallback, "fallback_static", "", fmt.Errorf("backend recommendation failed: %w", err)
+	daily, dailyErr := client.FetchDailyQueue(ctx, httpClient, cfg.BackendBaseURL, cfg.UserID)
+	if dailyErr == nil && daily.CompletedCount > 0 {
+		return fallback, "backend_daily_queue_submitted", "", false, errProblemsSubmittedToday
 	}
-	return rec.URL, "backend_today_recommendation", rec.Slug, nil
+
+	problemQueue, queueErr := client.FetchProblemQueue(ctx, httpClient, cfg.BackendBaseURL, cfg.UserID, "")
+	if queueErr != nil {
+		if dailyErr != nil {
+			return fallback, "fallback_static", "", true, fmt.Errorf("queue load failed: %v; daily queue load failed: %w", queueErr, dailyErr)
+		}
+		return fallback, "fallback_static", "", true, fmt.Errorf("queue load failed: %w", queueErr)
+	}
+	if len(problemQueue.Recommendations) == 0 {
+		return fallback, "fallback_static", "", true, errors.New("problem queue is empty")
+	}
+
+	first := problemQueue.Recommendations[0]
+	problemURL, slug = buildProblemLink(first.URL, first.Slug, fallback)
+	source = "problem_queue:" + problemQueue.Source
+	return problemURL, source, slug, true, nil
+}
+
+func buildProblemLink(urlCandidate, slugCandidate, fallback string) (string, string) {
+	urlCandidate = strings.TrimSpace(urlCandidate)
+	slugCandidate = strings.TrimSpace(slugCandidate)
+	if urlCandidate == "" && slugCandidate != "" {
+		urlCandidate = fmt.Sprintf("https://leetcode.com/problems/%s/", slugCandidate)
+	}
+	if urlCandidate == "" {
+		urlCandidate = fallback
+	}
+	return urlCandidate, slugCandidate
 }
 
 type agentRuntime struct {
@@ -205,7 +246,7 @@ func (a *agentRuntime) startLoop() {
 	a.wg.Add(1)
 	go func() {
 		defer a.wg.Done()
-		runAgentLoop(a.ctx, a.cfg, a.logger, a.lastTriggered, a.httpClient)
+		a.runLoop()
 	}()
 }
 
@@ -221,58 +262,74 @@ func (a *agentRuntime) OpenToday() {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	problemURL, source, slug, fetchErr := resolveProblemURL(a.cfg, a.httpClient)
+	cfg := a.currentConfig()
+	problemURL, source, slug, shouldOpen, fetchErr := resolveProblemURL(cfg, a.httpClient)
+	action := "MANUAL_OPEN_TODAY"
+	if !shouldOpen {
+		action = "MANUAL_OPEN_TODAY_SKIPPED"
+	}
 	event := eventlogger.EnforcementEvent{
 		TimestampUTC:           time.Now().UTC(),
 		Executable:             "manual_tray",
-		Action:                 "MANUAL_OPEN_TODAY",
+		Action:                 action,
 		ProblemURL:             problemURL,
 		RecommendationSource:   source,
 		RecommendedProblemSlug: slug,
-		DryRun:                 a.cfg.DryRun,
+		DryRun:                 cfg.DryRun,
 	}
 	if fetchErr != nil {
 		event.Error = fetchErr.Error()
 	}
-	if !a.cfg.DryRun {
-		if err := enforcer.OpenInDefaultBrowser(problemURL); err != nil {
-			event.Action = "MANUAL_OPEN_TODAY_FAILED"
-			if event.Error == "" {
-				event.Error = err.Error()
+
+	if shouldOpen {
+		if cfg.DryRun {
+			log.Printf("tray open today (dry-run): would open %s source=%s", problemURL, source)
+		} else {
+			if err := enforcer.OpenInDefaultBrowser(problemURL); err != nil {
+				event.Action = "MANUAL_OPEN_TODAY_FAILED"
+				if event.Error == "" {
+					event.Error = err.Error()
+				} else {
+					event.Error = event.Error + "; " + err.Error()
+				}
+				log.Printf("tray open today failed: %v", err)
 			} else {
-				event.Error = event.Error + "; " + err.Error()
+				log.Printf("tray open today: %s source=%s", problemURL, source)
 			}
 		}
+	} else {
+		reason := "skipped opening problem"
+		if fetchErr != nil {
+			reason = fetchErr.Error()
+		}
+		log.Printf("tray open today: %s", reason)
 	}
+
 	if err := a.logger.Write(event); err != nil {
 		log.Printf("write event log: %v", err)
 	}
-	if event.Error != "" {
-		log.Printf("tray open today error: %s", event.Error)
-		return
-	}
-	log.Printf("tray open today: %s source=%s", problemURL, source)
 }
 
 func (a *agentRuntime) MarkDone() {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
+	cfg := a.currentConfig()
 	event := eventlogger.EnforcementEvent{
 		TimestampUTC: time.Now().UTC(),
 		Executable:   "manual_tray",
 		Action:       "MANUAL_MARK_DONE",
-		ProblemURL:   a.cfg.LeetCodeProblemURL,
-		DryRun:       a.cfg.DryRun,
+		ProblemURL:   cfg.LeetCodeProblemURL,
+		DryRun:       cfg.DryRun,
 	}
 
-	if strings.TrimSpace(a.cfg.BackendBaseURL) == "" || strings.TrimSpace(a.cfg.UserID) == "" {
+	if strings.TrimSpace(cfg.BackendBaseURL) == "" || strings.TrimSpace(cfg.UserID) == "" {
 		event.Action = "MANUAL_MARK_DONE_FAILED"
 		event.Error = "backend_base_url and user_id are required"
-	} else if !a.cfg.DryRun {
-		ctx, cancel := context.WithTimeout(context.Background(), a.cfg.RequestTimeout)
+	} else if !cfg.DryRun {
+		ctx, cancel := context.WithTimeout(context.Background(), cfg.RequestTimeout)
 		defer cancel()
-		problemID, err := client.MarkFirstIncompleteToday(ctx, a.httpClient, a.cfg.BackendBaseURL, a.cfg.UserID)
+		problemID, err := client.MarkFirstIncompleteToday(ctx, a.httpClient, cfg.BackendBaseURL, cfg.UserID)
 		if err != nil {
 			event.Action = "MANUAL_MARK_DONE_FAILED"
 			event.Error = err.Error()
@@ -289,7 +346,7 @@ func (a *agentRuntime) MarkDone() {
 		log.Printf("tray mark done error: %s", event.Error)
 		return
 	}
-	if a.cfg.DryRun {
+	if cfg.DryRun {
 		log.Printf("tray mark done (dry-run)")
 		return
 	}
@@ -321,6 +378,48 @@ func launchDesktopUI(configPath string) error {
 		return fmt.Errorf("start desktop ui process: %w", err)
 	}
 	return nil
+}
+
+func (a *agentRuntime) currentConfig() config.Config {
+	if strings.TrimSpace(a.configPath) == "" {
+		return a.cfg
+	}
+	latest, err := config.Load(a.configPath)
+	if err != nil {
+		log.Printf("reload config failed; using in-memory config: %v", err)
+		return a.cfg
+	}
+	return latest
+}
+
+func (a *agentRuntime) runLoop() {
+	current := a.currentConfig()
+	if current.PollInterval <= 0 {
+		current.PollInterval = a.cfg.PollInterval
+	}
+	runOnce(current, a.logger, a.lastTriggered, a.httpClient)
+
+	ticker := time.NewTicker(current.PollInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-a.ctx.Done():
+			log.Printf("agent loop stopped")
+			return
+		case <-ticker.C:
+			next := a.currentConfig()
+			if next.PollInterval <= 0 {
+				next.PollInterval = current.PollInterval
+			}
+			if next.PollInterval != current.PollInterval {
+				ticker.Stop()
+				ticker = time.NewTicker(next.PollInterval)
+			}
+			current = next
+			runOnce(current, a.logger, a.lastTriggered, a.httpClient)
+		}
+	}
 }
 
 func runAgentLoop(ctx context.Context, cfg config.Config, logger *eventlogger.JSONL, lastTriggered map[string]time.Time, httpClient *http.Client) {
