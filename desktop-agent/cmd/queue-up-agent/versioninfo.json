@@ -1,34 +1,34 @@
 {
   "FixedFileInfo": {
+    "FileFlags": "00",
+    "FileFlagsMask": "3f",
+    "FileOS": "040004",
+    "FileSubType": "00",
+    "FileType": "01",
     "FileVersion": {
       "Major": 1,
       "Minor": 0,
-      "Patch": 0,
+      "Patch": 1,
       "Build": 0
     },
     "ProductVersion": {
       "Major": 1,
       "Minor": 0,
-      "Patch": 0,
+      "Patch": 1,
       "Build": 0
-    },
-    "FileFlagsMask": "3f",
-    "FileFlags": "00",
-    "FileOS": "040004",
-    "FileType": "01",
-    "FileSubType": "00"
+    }
   },
   "StringFileInfo": {
     "CompanyName": "Queue Up",
     "FileDescription": "Leetcode reminder desktop agent",
-    "FileVersion": "1.0.0",
+    "FileVersion": "1.0.1.0",
     "InternalName": "queue-up-agent",
     "LegalCopyright": "Copyright © 2026 Queue Up",
     "LegalTrademarks": "",
     "OriginalFilename": "queue-up-agent.exe",
-    "ProductName": "Queue Up Desktop Agent",
-    "ProductVersion": "1.0.0",
     "PrivateBuild": "",
+    "ProductName": "Queue Up Desktop Agent",
+    "ProductVersion": "1.0.1.0",
     "SpecialBuild": ""
   },
   "VarFileInfo": {
