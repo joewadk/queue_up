@@ -41,3 +41,5 @@
 go run update_version.go 
 ```
 
+# 04/03/2026
+- hotfixed startup agent to not show cmd to the user

@@ -38,6 +38,8 @@ The agent is implemented in Go and the native UI (tray + windows) is powered by 
    - Ensure the `config.json` file exists (copies from `config.example.json` if missing).
    - Run the agent with the appropriate configuration.
 
+    The Windows build invoked by the quickstart script now passes `-ldflags "-H=windowsgui"` so the generated `queue-up-agent.exe` runs as a GUI subsystem process. That means double-clicking it or launching it from startup only shows the tray/desktop windows and closing any originating `cmd` tab no longer terminates the agent.
+
 2. Edit `config/config.json` if needed:
    - Set `leetcode_problem_url` to the current problem URL you want to enforce.
    - Adjust other settings as required.

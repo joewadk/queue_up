@@ -50,5 +50,5 @@ if (-not $iconResourceEmbedded) {
 }
 
 $env:GOARCH = "amd64"
-go build -o $binPath .\cmd\queue-up-agent
+go build -ldflags "-H=windowsgui" -o $binPath .\cmd\queue-up-agent
 Write-Host "Built $binPath"
