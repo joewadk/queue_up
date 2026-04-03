@@ -43,3 +43,10 @@ go run update_version.go
 
 # 04/03/2026
 - hotfixed startup agent to not show cmd to the user
+- added nginx to the backend/postgres endpoints
+- deployed on aws ec2
+- added duckdns to not expose my ec2 ip
+- added certbot ssl certification
+- no longer need to run docker run, exe is self sufficient now!
+
+

@@ -21,7 +21,7 @@ Queue Up pairs spaced-repetition coaching with enforced focus, but the current M
 
 ## Schema Snapshot
 
-- `users` store the Clerk-linked identity, timezone, and creation timestamp that anchor every assignment.
+- `users` store the identity reference, timezone, and creation timestamp that anchor every assignment.
 - `concepts` captures both topical buckets (Arrays, Graphs) and technique-focused entries (DFS, Sliding Window, Prefix Sums, etc.), and the `type` enum keeps topics and techniques distinct.
 - `user_concept_preferences` tracks each concept the user explicitly chose so the scheduler can bias today's queue toward those buckets.
 - `problems` is the seeded catalog. Each row holds the `slug`, difficulty, canonical `url`, `source_set` tag (currently `NEETCODE_150` plus the handful of extra DSU/Queue/technique entries we added), `queue_rank`, and raw LeetCode `tags`. These fields make it easy to extend the catalog with specialized sets like prefix sums or segment trees before a broader LeetCode sync.
@@ -40,7 +40,6 @@ flowchart LR
     D <--> |REST/gRPC| B
     B <--> R[(Redis Pub/Sub)]
     B <--> P[(Postgres)]
-    B <--> C[Clerk Auth]
     B <--> L[LeetCode API Adapter<br/>noworneverev/leetcode-api]
 
     R --> B
@@ -57,7 +56,7 @@ flowchart LR
     class M mobile;
     class D desktop;
     class B backend;
-    class R,P,C,L infra;
+    class R,P,L infra;
 ```
 
 ## End-to-End Data Flow
@@ -72,13 +71,13 @@ sequenceDiagram
     participant Redis as Redis
     participant PG as Postgres
     participant LC as LeetCode API
-    participant Clerk as Clerk
+    participant Auth as Identity Provider
 
     rect rgb(239, 246, 255)
         Note over Mobile,Backend: Auth + Profile Bootstrap
         Mobile->>Backend: Send sign-in token
-        Backend->>Clerk: Validate session
-        Clerk-->>Backend: User identity
+        Backend->>Auth: Validate session
+        Auth-->>Backend: User identity
         Backend->>PG: Upsert user profile
     end
 
@@ -152,7 +151,7 @@ flowchart TD
   "themeCSS": ".nodeLabel,.edgeLabel,.label,text,tspan{paint-order:stroke;stroke:#111;stroke-width:0.5px;stroke-linejoin:round;text-shadow:0.5px 0.5px 1px rgba(0,0,0,0.18);}"
 }}%%
 flowchart TD
-    A["User logs in"] --> B["Pick starting concept<br/>(Graphs / DP / Queue / ...)"]
+    A["User logs in via Github Username"] --> B["Pick starting concept<br/>(Graphs / DP / Queue / ...)"]
     B --> C["Backend builds initial plan<br/>Easy-first from NeetCode 150 seed"]
     C --> D["Assign daily queue<br/>max 3 problems"]
     D --> E["Mobile receives push notification"]
@@ -181,15 +180,10 @@ flowchart TD
 - `submission-sanitizer-java/target/` is ignored so Maven class artifacts stay out of git while the source config and code stay visible.
 - The desktop agent keeps `config-example.json` versioned while each contributor can keep a local `desktop-agent/config.json` for machine-specific overrides.
 - The Windows build script now runs `goversioninfo` (when installed) to bake the product metadata defined in `desktop-agent/cmd/queue-up-agent/versioninfo.json` into the executable; install it via `go install github.com/josephspurrier/goversioninfo/cmd/goversioninfo@latest` before running `desktop-agent/build-windows.ps1`.
-- Infra side includes the `infra/aws/nginx` configs; we’ll drop a dedicated Nginx block once the SwiftUI client is in place.
+- Infra side includes the `infra/aws/nginx` configs that now front the Go backend with TLS/rate limiting and keep the production endpoints aligned with the desktop agent MVP.
 - Swift UI mobile screens are coming next, so keep an eye on the `mobile/` branch layout once it gets merged.
 - Problem catalog is already seeded with NeetCode 150 plus DSU/Queue extras and is being expanded with specialized topics (prefix sums, cumulative sums, etc.) so future assignments can drill into narrower skill slices.
 
-## Remote backend endpoint
-
-- The production API now lives at `https://queue-up-backend.duckdns.org`. Local desktop agents and any other clients should point their `backend_base_url`/API base to that domain instead of `localhost:8080` when you want to hit the deployed Postgres-backed dataset.
-- Certbot-protected HTTPS is proxying to the Dockerized Go backend via the host-level Nginx proxy, so hitting `/health` or any `v1/...` endpoint on that hostname behaves the same as calling the local container ports.
-- Rebuild or copy `desktop-agent/config.json` from `config.example.json` if you have a custom config; make sure `backend_base_url` uses the DuckDNS URL before starting the agent outside your Docker host.
 
 ## Docker Setup (Postgres + Backend)
 
