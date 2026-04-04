@@ -2,7 +2,7 @@
   "poll_interval_seconds": 5,
   "cooldown_seconds": 60,
   "backend_base_url": "",
-  "user_id": "00000000-0000-0000-0000-000000000001",
+  "user_id": "",
   "request_timeout_seconds": 5,
   "leetcode_problem_url": "",
   "watched_executables": [

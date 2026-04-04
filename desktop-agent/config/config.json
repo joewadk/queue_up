@@ -9,7 +9,7 @@
   "open_gui_on_start": true,
   "poll_interval_seconds": 5,
   "request_timeout_seconds": 5,
-  "user_id": "cccf5074-606a-4934-9e5c-40a1cf68924e",
+  "user_id": "",
   "watched_executables": [
     "Marvel-Win64-Shipping.exe",
     "masterduel.exe"
