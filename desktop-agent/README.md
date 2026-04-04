@@ -37,12 +37,14 @@ The agent is implemented in Go and the native UI (tray + windows) is powered by 
    - Build the `queue-up-agent` binary.
    - Ensure the `config.json` file exists (copies from `config.example.json` if missing).
    - Run the agent with the appropriate configuration.
+   - Source the repo-level `.env`, so `QUEUE_UP_BACKEND_BASE_URL` and `QUEUE_UP_LEETCODE_PROBLEM_URL` can live there instead of in `config.json`.
 
     The Windows build invoked by the quickstart script now passes `-ldflags "-H=windowsgui"` so the generated `queue-up-agent.exe` runs as a GUI subsystem process. That means double-clicking it or launching it from startup only shows the tray/desktop windows and closing any originating `cmd` tab no longer terminates the agent.
 
 2. Edit `config/config.json` if needed:
    - Set `leetcode_problem_url` to the current problem URL you want to enforce.
    - Adjust other settings as required.
+   - Most URLs (backend + fallback LeetCode) can also be supplied via `QUEUE_UP_BACKEND_BASE_URL` and `QUEUE_UP_LEETCODE_PROBLEM_URL`, which let you keep the sensitive endpoints out of versioned configs.
 
 3. For native desktop UI support, ensure Fyne prerequisites are installed on Windows (`gcc` via MinGW-w64 is typically required for cgo builds).
 
@@ -50,10 +52,10 @@ The agent is implemented in Go and the native UI (tray + windows) is powered by 
 
 - `poll_interval_seconds`: process scan frequency.
 - `cooldown_seconds`: minimum time before re-enforcing for the same exe (`0` = every poll).
-- `backend_base_url`: Queue Up backend base URL (for recommendation fetch).
+- `backend_base_url`: Queue Up backend base URL (for recommendation fetch). If you prefer not to store the endpoint in `config.json`, set `QUEUE_UP_BACKEND_BASE_URL` instead.
 - `user_id`: user id passed to `/v1/recommendation/today`.
 - `request_timeout_seconds`: HTTP timeout for backend recommendation fetch.
-- `leetcode_problem_url`: URL opened in default browser on enforcement.
+- `leetcode_problem_url`: URL opened in default browser on enforcement. Defaults to `https://leetcode.com/problemset/`, but you can override it via `QUEUE_UP_LEETCODE_PROBLEM_URL`.
 - `watched_executables`: list of process names to detect.
 - `log_file_path`: JSONL log output path.
 - `dry_run`: when `true`, logs actions without opening browser.

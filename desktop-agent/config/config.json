@@ -1,9 +1,9 @@
 {
-  "backend_base_url": "https://queue-up-backend.duckdns.org",
+  "backend_base_url": "",
   "cooldown_seconds": 60,
   "dry_run": false,
   "enable_tray": true,
-  "leetcode_problem_url": "https://leetcode.com/problemset/",
+  "leetcode_problem_url": "",
   "log_file_path": "logs/enforcement.jsonl",
   "log_polls": true,
   "open_gui_on_start": true,

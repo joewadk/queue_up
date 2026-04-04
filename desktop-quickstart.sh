@@ -11,6 +11,16 @@ EXAMPLE_CONFIG="$CONFIG_DIR/config.example.json"
 
 cd "$AGENT_DIR"
 
+# load repository-level environment overrides (if any)
+ENV_FILE="$SCRIPT_DIR/.env"
+if [ -f "$ENV_FILE" ]; then
+    echo "Loading environment from $ENV_FILE"
+    set -o allexport
+    # shellcheck disable=SC1090
+    source "$ENV_FILE"
+    set +o allexport
+fi
+
 # ensure config directory exists
 if [ ! -f "$CONFIG_FILE" ]; then
     echo "Config file not found at $CONFIG_FILE. Creating from example..."

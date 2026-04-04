@@ -39,6 +39,12 @@ type Config struct {
 	OpenGUIOnStart     bool
 }
 
+const (
+	envBackendBaseURL          = "QUEUE_UP_BACKEND_BASE_URL"
+	envLeetCodeProblemURL      = "QUEUE_UP_LEETCODE_PROBLEM_URL"
+	defaultLeetCodeProblemURL  = "https://leetcode.com/problemset/"
+)
+
 func Load(path string) (Config, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -59,8 +65,17 @@ func Load(path string) (Config, error) {
 	if raw.RequestTimeoutSec <= 0 {
 		raw.RequestTimeoutSec = 5
 	}
-	if strings.TrimSpace(raw.LeetCodeProblemURL) == "" {
-		return Config{}, fmt.Errorf("leetcode_problem_url is required")
+	backendBaseURL := strings.TrimSpace(raw.BackendBaseURL)
+	if env := strings.TrimSpace(os.Getenv(envBackendBaseURL)); env != "" {
+		backendBaseURL = env
+	}
+
+	leetcodeProblemURL := strings.TrimSpace(raw.LeetCodeProblemURL)
+	if env := strings.TrimSpace(os.Getenv(envLeetCodeProblemURL)); env != "" {
+		leetcodeProblemURL = env
+	}
+	if leetcodeProblemURL == "" {
+		leetcodeProblemURL = defaultLeetCodeProblemURL
 	}
 	if len(raw.WatchedExecutables) == 0 {
 		return Config{}, fmt.Errorf("watched_executables must contain at least one executable name")
@@ -89,8 +104,8 @@ func Load(path string) (Config, error) {
 	return Config{
 		PollInterval:       time.Duration(raw.PollIntervalSeconds) * time.Second,
 		Cooldown:           time.Duration(raw.CooldownSeconds) * time.Second,
-		LeetCodeProblemURL: strings.TrimSpace(raw.LeetCodeProblemURL),
-		BackendBaseURL:     strings.TrimSpace(raw.BackendBaseURL),
+		LeetCodeProblemURL: leetcodeProblemURL,
+		BackendBaseURL:     backendBaseURL,
 		UserID:             strings.TrimSpace(raw.UserID),
 		RequestTimeout:     time.Duration(raw.RequestTimeoutSec) * time.Second,
 		WatchedExecutables: watched,
