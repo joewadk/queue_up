@@ -16,25 +16,25 @@ const dailyLimit = 3
 var ErrUserNotFound = errors.New("user not found")
 
 var conceptTagMap = map[string][]string{
-	"ARRAY":               {"ARRAY_HASHING"},
-	"TWO_POINTERS":        {"TWO_POINTERS"},
-	"STACK":               {"STACK"},
-	"BINARY_SEARCH":       {"BINARY_SEARCH"},
-	"SLIDING_WINDOW":      {"SLIDING_WINDOW"},
-	"LINKED_LIST":         {"LINKED_LIST"},
-	"TREE":                {"TREE"},
-	"TRIE":                {"TRIE"},
-	"BACKTRACKING":        {"BACKTRACKING"},
-	"HEAP":                {"HEAP"},
-	"GRAPH":               {"GRAPH"},
-	"DP_1D":               {"DP_1D"},
-	"DP_2D":               {"DP_2D"},
-	"INTERVALS":           {"INTERVALS"},
-	"GREEDY":              {"GREEDY"},
-	"BIT_MANIPULATION":    {"BIT_MANIPULATION"},
-	"DSU":                 {"DSU (Disjoint Set Union)"},
-	"QUEUE":               {"QUEUE"},
-	"MATH_GEOMETRY":       {"MATH&GEOMETRY"},
+	"ARRAY":            {"ARRAY_HASHING"},
+	"TWO_POINTERS":     {"TWO_POINTERS"},
+	"STACK":            {"STACK"},
+	"BINARY_SEARCH":    {"BINARY_SEARCH"},
+	"SLIDING_WINDOW":   {"SLIDING_WINDOW"},
+	"LINKED_LIST":      {"LINKED_LIST"},
+	"TREE":             {"TREE"},
+	"TRIE":             {"TRIE"},
+	"BACKTRACKING":     {"BACKTRACKING"},
+	"HEAP":             {"HEAP"},
+	"GRAPH":            {"GRAPH"},
+	"DP_1D":            {"DP_1D"},
+	"DP_2D":            {"DP_2D"},
+	"INTERVALS":        {"INTERVALS"},
+	"GREEDY":           {"GREEDY"},
+	"BIT_MANIPULATION": {"BIT_MANIPULATION"},
+	"DSU":              {"DSU (Disjoint Set Union)"},
+	"QUEUE":            {"QUEUE"},
+	"MATH_GEOMETRY":    {"MATH&GEOMETRY"},
 }
 
 func tagsForConceptCodes(codes []string) []string {
@@ -193,38 +193,72 @@ func queryQueueCandidates(ctx context.Context, tx pgx.Tx, userID string, limit i
 		tagArg = tagFilters
 	}
 	rows, err := tx.Query(ctx, `
+        WITH ranked_candidates AS (
+            SELECT
+                p.id,
+                p.slug,
+                p.title,
+                p.url,
+                p.difficulty,
+                COALESCE(p.queue_rank, 1000) AS rank_order,
+                CASE p.difficulty
+                    WHEN 'Easy' THEN 1
+                    WHEN 'Medium' THEN 2
+                    ELSE 3
+                END AS difficulty_order,
+                CASE
+                    WHEN EXISTS (
+                        SELECT 1
+                        FROM problem_completions pc_any
+                        JOIN problems cp_any ON cp_any.id = pc_any.problem_id
+                        WHERE pc_any.user_id = $1
+                          AND LOWER(cp_any.slug) = LOWER(p.slug)
+                    ) THEN 1
+                    ELSE 0
+                END AS repeat_penalty
+            FROM problems p
+            WHERE p.active = true
+              AND p.source_set IN ('NEETCODE_150', 'LEETCODE_API')
+              AND NOT EXISTS (
+                SELECT 1
+                FROM problem_completions pc
+                JOIN problems cp ON cp.id = pc.problem_id
+                WHERE pc.user_id = $1
+                  AND LOWER(cp.slug) = LOWER(p.slug)
+                  AND pc.completed_at >= (NOW() - INTERVAL '7 days')
+              )
+              AND (
+                $2::text[] IS NULL
+                OR EXISTS (
+                  SELECT 1
+                  FROM unnest($2::text[]) AS preferred_tag
+                  WHERE preferred_tag = ANY(p.tags)
+                )
+              )
+        ),
+        deduped_candidates AS (
+            SELECT DISTINCT ON (LOWER(slug))
+                0::smallint AS position,
+                id,
+                slug,
+                title,
+                url,
+                difficulty,
+                rank_order,
+                difficulty_order,
+                repeat_penalty
+            FROM ranked_candidates
+            ORDER BY LOWER(slug), repeat_penalty, rank_order, difficulty_order, id
+        )
         SELECT
-            0::smallint AS position,
-            p.id,
-            p.slug,
-            p.title,
-            p.url,
-            p.difficulty
-        FROM problems p
-        WHERE p.active = true
-          AND p.source_set IN ('NEETCODE_150', 'LEETCODE_API')
-          AND NOT EXISTS (
-            SELECT 1
-            FROM problem_completions pc
-            WHERE pc.user_id = $1
-              AND pc.problem_id = p.id
-          )
-          AND (
-            $2::text[] IS NULL
-            OR EXISTS (
-              SELECT 1
-              FROM unnest($2::text[]) AS preferred_tag
-              WHERE preferred_tag = ANY(p.tags)
-            )
-          )
-        ORDER BY
-            COALESCE(p.queue_rank, 1000),
-            CASE p.difficulty
-                WHEN 'Easy' THEN 1
-                WHEN 'Medium' THEN 2
-                ELSE 3
-            END,
-            p.id
+            position,
+            id,
+            slug,
+            title,
+            url,
+            difficulty
+        FROM deduped_candidates
+        ORDER BY repeat_penalty, rank_order, difficulty_order, id
         LIMIT $3
     `, userID, tagArg, limit)
 	if err != nil {

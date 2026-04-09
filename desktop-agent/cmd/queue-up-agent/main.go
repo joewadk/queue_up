@@ -29,6 +29,7 @@ func main() {
 	configPath := flag.String("config", "", "Path to desktop agent config JSON")
 	trayMode := flag.Bool("tray", false, "Run with system tray UI")
 	desktopMode := flag.Bool("desktop-ui", false, "Run native desktop UI")
+	hideConsole := flag.Bool("hide-console", false, "Hide console window on Windows")
 	installStartup := flag.Bool("install-startup", false, "Register this executable in Windows Startup Apps")
 	uninstallStartup := flag.Bool("uninstall-startup", false, "Remove this executable from Windows Startup Apps")
 	startupStatus := flag.Bool("startup-status", false, "Print Windows Startup Apps registration status")
@@ -41,6 +42,9 @@ func main() {
 	absConfigPath, err := filepath.Abs(*configPath)
 	if err == nil {
 		*configPath = absConfigPath
+	}
+	if *hideConsole {
+		hideConsoleWindow()
 	}
 
 	if *installStartup || *uninstallStartup || *startupStatus {

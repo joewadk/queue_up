@@ -23,7 +23,7 @@ func Install(entryName, exePath, configPath string) error {
 		return fmt.Errorf("config path is required")
 	}
 
-	command := fmt.Sprintf("\"%s\" -tray -config \"%s\"", exePath, configPath)
+	command := fmt.Sprintf("\"%s\" -tray -hide-console -config \"%s\"", exePath, configPath)
 	out, err := exec.Command("reg", "add", runKeyPath, "/v", entryName, "/t", "REG_SZ", "/d", command, "/f").CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("add startup registry value: %w | output=%s", err, strings.TrimSpace(string(out)))

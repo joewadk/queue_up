@@ -124,7 +124,7 @@ func New(db *store.DB) http.Handler {
 		})
 	})
 
-	mux.HandleFunc("/v1/recommendation/today", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/v1/recommendation/today", withQueueCategoryGuard(db, queryUserID("user_id"), func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
 			return
@@ -164,7 +164,7 @@ func New(db *store.DB) http.Handler {
 			"recommendations":       recs,
 			"recommendation_source": "nc150_queue",
 		})
-	})
+	}))
 
 	mux.HandleFunc("/v1/completions", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -223,7 +223,7 @@ func New(db *store.DB) http.Handler {
 		})
 	})
 
-	mux.HandleFunc("/v1/daily-queue", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/v1/daily-queue", withQueueCategoryGuard(db, queryUserID("user_id"), func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
 			return
@@ -271,7 +271,7 @@ func New(db *store.DB) http.Handler {
 			"completed_count": completed,
 			"queue":           queue,
 		})
-	})
+	}))
 
 	mux.HandleFunc("/v1/users/", func(w http.ResponseWriter, r *http.Request) {
 		path := strings.TrimPrefix(r.URL.Path, "/v1/users/")
@@ -335,6 +335,10 @@ func New(db *store.DB) http.Handler {
 			}
 			ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 			defer cancel()
+			if err := db.EnsureTodayQueueMatchesCategory(ctx, userID); err != nil && !errors.Is(err, store.ErrUserNotFound) {
+				writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+				return
+			}
 			date, recs, err := db.RefreshTodayRecommendations(ctx, userID)
 			if err != nil {
 				if errors.Is(err, store.ErrUserNotFound) {

@@ -299,14 +299,18 @@ func (db *DB) RefreshTodayRecommendations(ctx context.Context, userID string) (t
 	}
 
 	if len(positionToFill) == 0 {
-		assignments, err := queryAssignments(ctx, tx, userID, today)
-		if err != nil {
-			return time.Time{}, nil, err
+		// All slots are completed for today; roll over to the next batch immediately.
+		if _, err := tx.Exec(ctx, `
+        DELETE FROM daily_assignments
+        WHERE user_id = $1
+          AND assignment_date = $2
+    `, userID, today); err != nil {
+			return time.Time{}, nil, fmt.Errorf("clear completed assignments for rollover: %w", err)
 		}
-		if err := tx.Commit(ctx); err != nil {
-			return time.Time{}, nil, fmt.Errorf("commit refresh tx: %w", err)
+		positionToFill = make([]int16, 0, dailyLimit)
+		for i := 1; i <= dailyLimit; i++ {
+			positionToFill = append(positionToFill, int16(i))
 		}
-		return today, assignments, nil
 	}
 
 	candidates, err := queryQueueCandidates(ctx, tx, userID, len(positionToFill), tagFilters)

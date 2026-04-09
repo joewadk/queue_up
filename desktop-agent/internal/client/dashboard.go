@@ -184,12 +184,6 @@ func FetchProblemQueue(ctx context.Context, httpClient *http.Client, baseURL, us
 			Source:          "refresh endpoint",
 		}, nil
 	}
-	if refreshErr == nil && len(refreshOut.Recommendations) == 0 && strings.TrimSpace(selectedConceptCode) != "" {
-		return ProblemQueueResult{
-			Recommendations: []Recommendation{},
-			Source:          "selected concept empty",
-		}, nil
-	}
 
 	dailyQueueOut, dailyQueueErr := FetchDailyQueue(ctx, httpClient, baseURL, userID)
 	if dailyQueueErr == nil && len(dailyQueueOut.Queue) > 0 {

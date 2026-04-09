@@ -22,6 +22,7 @@ import (
 	"queue_up/desktop-agent/internal/appicon"
 	"queue_up/desktop-agent/internal/client"
 	"queue_up/desktop-agent/internal/config"
+	"queue_up/desktop-agent/internal/enforcer"
 )
 
 const (
@@ -262,7 +263,7 @@ func Run(cfg config.Config, configPath string) error {
 		state.todayLeetCodeHistory = filtered
 		completedTodayList.Refresh()
 		for i := 0; i < len(state.todayLeetCodeHistory); i++ {
-			completedTodayList.SetItemHeight(i, 84)
+			completedTodayList.SetItemHeight(i, 112)
 		}
 		if len(state.todayLeetCodeHistory) == 0 {
 			todayWarningPill.Show()
@@ -290,6 +291,9 @@ func Run(cfg config.Config, configPath string) error {
 		}
 		state.leetCodeHistory = rows
 		leetCodeHistoryList.Refresh()
+		for i := 0; i < len(state.leetCodeHistory); i++ {
+			leetCodeHistoryList.SetItemHeight(i, 112)
+		}
 		updateTodaySubmissionView()
 		setStatus(fmt.Sprintf("LeetCode history loaded: %d entries (%d today)", len(rows), len(state.todayLeetCodeHistory)))
 	}
@@ -348,15 +352,56 @@ func Run(cfg config.Config, configPath string) error {
 			setStatus("Queue refresh failed: " + err.Error())
 			return
 		}
-		if out.Source == "selected concept empty" {
-			setStatus("No queue problems available for the selected category.")
-			return
-		}
 		if len(out.Recommendations) == 0 {
 			setStatus("Queue refreshed: 0 problems")
 			return
 		}
 		applyQueue(out.Recommendations, out.Source)
+	}
+
+	openTodaysProblem := func() {
+		if state.userID == "" {
+			dialog.ShowError(fmt.Errorf("login first"), w)
+			return
+		}
+
+		queueToOpen := state.queue
+		if len(queueToOpen) == 0 {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			out, err := client.FetchProblemQueue(
+				ctx,
+				state.httpClient,
+				state.cfg.BackendBaseURL,
+				state.userID,
+				state.selectedConceptCode,
+			)
+			if err != nil {
+				dialog.ShowError(fmt.Errorf("queue load failed: %w", err), w)
+				return
+			}
+			queueToOpen = out.Recommendations
+			applyQueue(out.Recommendations, out.Source)
+		}
+		if len(queueToOpen) == 0 {
+			dialog.ShowError(fmt.Errorf("problem queue is empty"), w)
+			return
+		}
+
+		first := queueToOpen[0]
+		targetURL := strings.TrimSpace(first.URL)
+		if targetURL == "" && strings.TrimSpace(first.Slug) != "" {
+			targetURL = fmt.Sprintf("https://leetcode.com/problems/%s/", strings.TrimSpace(first.Slug))
+		}
+		if targetURL == "" {
+			dialog.ShowError(fmt.Errorf("selected queue problem has no URL"), w)
+			return
+		}
+		if err := enforcer.OpenInDefaultBrowser(targetURL); err != nil {
+			dialog.ShowError(err, w)
+			return
+		}
+		setStatus("Opened first problem in queue.")
 	}
 
 	loadConcepts := func(selected []string) {
@@ -473,6 +518,7 @@ func Run(cfg config.Config, configPath string) error {
 	})
 
 	refreshLeetCodeHistoryBtn := widget.NewButton("Refresh LeetCode History", refreshLeetCodeHistory)
+	openTodayBtn := widget.NewButton("Open Problem", openTodaysProblem)
 
 	markCompleteBtn := widget.NewButton("Mark Selected Complete", func() {
 		if state.userID == "" {
@@ -568,7 +614,7 @@ func Run(cfg config.Config, configPath string) error {
 	)
 	queue := container.NewVBox(
 		widget.NewSeparator(),
-		container.NewHBox(widget.NewLabel("Problem Queue"), categoryPill),
+		container.NewHBox(widget.NewLabel("Problem Queue"), categoryPill, openTodayBtn),
 		queueSelect,
 		widget.NewLabel("Submission URL (required)"),
 		submissionEntry,
