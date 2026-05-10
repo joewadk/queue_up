@@ -143,36 +143,7 @@ flowchart TD
     class C,C1,C2,C3 analytics;
 ```
 
-## MVP User Flow
 
-```mermaid
-%%{init: {
-  "theme": "base",
-  "themeCSS": ".nodeLabel,.edgeLabel,.label,text,tspan{paint-order:stroke;stroke:#111;stroke-width:0.5px;stroke-linejoin:round;text-shadow:0.5px 0.5px 1px rgba(0,0,0,0.18);}"
-}}%%
-flowchart TD
-    A["User logs in via Github Username"] --> B["Pick starting concept<br/>(Graphs / DP / Queue / ...)"]
-    B --> C["Backend builds initial plan<br/>Easy-first from NeetCode 150 seed"]
-    C --> D["Assign daily queue<br/>max 3 problems"]
-    D --> E["Mobile receives push notification"]
-    E --> F["User solves problem(s)"]
-    F --> G["Backend updates mastery + next review"]
-
-    H["Desktop detects game app in foreground"] --> I["Fetch current daily problem URL"]
-    I --> J["Open/switch to LeetCode tab in default browser"]
-    J --> K["Log enforcement event + notify mobile"]
-    K --> F
-
-    classDef start fill:#E3F2FD,stroke:#1565C0,stroke-width:1px,color:#0D47A1;
-    classDef learning fill:#E8F5E9,stroke:#2E7D32,stroke-width:1px,color:#1B5E20;
-    classDef delivery fill:#EDE7F6,stroke:#5E35B1,stroke-width:1px,color:#311B92;
-    classDef enforcement fill:#FFF3E0,stroke:#EF6C00,stroke-width:1px,color:#E65100;
-
-    class A start;
-    class B,C,D,F,G learning;
-    class E,K delivery;
-    class H,I,J enforcement;
-```
 
 ## Development Notes
 
